@@ -1,7 +1,16 @@
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Conv2D, DepthwiseConv2D, MaxPooling2D, Lambda, BatchNormalization, add, multiply
 from tensorflow.keras.layers import Conv2DTranspose, Dropout, GlobalAveragePooling2D,  Dense, Average, Reshape, Input
-from tensorflow.nn import relu, relu6, swish
+from tensorflow.keras.layers import Activation
+
+def relu(x):
+	return Activation('relu')(x)
+
+def relu6(x):
+	return Activation('relu6')(x)
+
+def swish(x):
+	return Activation('swish')(x)
 
 def MinimNet(input_shape, output_shape):
 	inputs = Input(shape=input_shape)

@@ -20,3 +20,7 @@ Contact me at [LinkedIn](https://www.linkedin.com/in/amadeus-winoto/)
 
 <h3> References </h3>
 [1] J. Sueiras, et al.: "Using Synthetic Character Database for Training Deep Learning Models Applied to Offline Handwritten Character Recognition", Proc. Intl. Conf.Intelligent Systems Design and Applications (ISDA), Springer, 2016.
+
+
+Runpod:
+python -m ipykernel install --user --name=myenv --display-name="Python (myenv)"

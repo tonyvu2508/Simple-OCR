@@ -1,0 +1,9 @@
+tensorflow
+nvidia-cudnn-cu12
+imutils
+matplotlib
+scikit-learn
+Pillow
+numpy
+opencv-python
+bitstring
