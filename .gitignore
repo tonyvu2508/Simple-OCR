@@ -1,11 +1,11 @@
-# Dataset
-ETL/
-docs/
-handwritten_character_database/
-handwritting_characters_database/
-curated/
+# Datasets
+data/ETL/
+data/curated/
 curated.tar.gz*
 images_debug/
+docs/
+handwritting_characters_database/
+handwritten_character_database/
 
 # Python Virtual Environment & Caches
 venv/
@@ -20,14 +20,13 @@ __pycache__/
 .ipynb_checkpoints/
 
 # Models & Weights
-*.h5
-*.keras
+models/*.h5
+models/*.keras
 
 # Output & Result Files
 Result.png
 Result-history.png
 Image_after_test.jpg
-Result-history.png
 
 # Temporary Scratch Files
 scratch/
