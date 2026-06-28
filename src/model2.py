@@ -67,7 +67,7 @@ def MinimNet(input_shape=(32, 32, 1), num_classes=94):
         [32,  2, 4, 2], # Giảm xuống 16x16
         [64,  2, 4, 3], # Giảm xuống 8x8
         [128, 2, 6, 3], # Giảm xuống 4x4
-        [256, 2, 6, 1]  # Giảm xuống 2x2
+        [256, 1, 6, 1]  # Giữ nguyên kích thước 4x4 (thay vì giảm xuống 2x2)
     ]
 
     for filters, stride, expansion, repeats in block_configs:
