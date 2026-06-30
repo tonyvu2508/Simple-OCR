@@ -63,23 +63,17 @@ class TextDetector:
                 "paddleocr is required for detection: pip install paddleocr"
             )
             
-        # Determine device for PaddleOCR
-        paddle_device = "cpu"
-        if device in ("gpu", "cuda"):
-            paddle_device = "gpu"
-        elif device == "auto":
-            try:
-                import paddle
-                if paddle.device.is_compiled_with_cuda():
-                    paddle_device = "gpu"
-            except ImportError:
-                pass
+        use_gpu = False
+        if device == "auto":
+            import torch
+            if torch.cuda.is_available():
+                use_gpu = True
+        elif device == "cuda":
+            use_gpu = True
             
         # Initialize PaddleOCR detector only
         self.model = PaddleOCR(
             lang="japan",
-            device="cpu",
-            enable_mkldnn=False,
         )
 
     def detect(
