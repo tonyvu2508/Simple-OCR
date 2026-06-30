@@ -7,3 +7,4 @@ Pillow
 numpy
 opencv-python
 bitstring
+trdg
