@@ -51,8 +51,8 @@ vocabulary:
 training:
   # Stage 1: Pre-train on synthetic data
   pretrain:
-    epochs: 50
-    batch_size: 64
+    epochs: 200
+    batch_size: 512
     learning_rate: 0.001
     weight_decay: 0.0001
     scheduler: cosine_annealing
