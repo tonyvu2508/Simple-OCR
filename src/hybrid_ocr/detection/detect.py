@@ -78,7 +78,7 @@ class TextDetector:
         # Initialize PaddleOCR detector only
         self.model = PaddleOCR(
             lang="japan",
-            use_gpu=False,
+            device="cpu",
         )
 
     def detect(
