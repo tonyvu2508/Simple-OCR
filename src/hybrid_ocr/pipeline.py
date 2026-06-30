@@ -196,15 +196,16 @@ class AuctionOCRPipeline:
         )
         
         results = []
+        json_path = Path(output_dir) / f"{Path(pdf_path).stem}_results.json"
+        
         for i, img_path in enumerate(image_paths):
             print(f"  Processing page {i+1}/{len(image_paths)}...")
             page_result = self.process_image(img_path, output_dir=output_dir)
             results.append(page_result)
             
-        # Save complete results to JSON
-        json_path = Path(output_dir) / f"{Path(pdf_path).stem}_results.json"
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(results, f, ensure_ascii=False, indent=2)
+            # Save progress incrementally after each page
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(results, f, ensure_ascii=False, indent=2)
             
         print(f"\nDone! Results saved to {json_path}")
         return results

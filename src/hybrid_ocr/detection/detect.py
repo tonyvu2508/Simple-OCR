@@ -149,6 +149,7 @@ class TextDetector:
         pdf_path: str,
         dpi: int = 200,
         page_range: Optional[Tuple[int, int]] = None,
+        output_dir: Optional[str] = None,
         **detect_kwargs,
     ) -> Dict[int, List[Dict]]:
         """
@@ -158,6 +159,7 @@ class TextDetector:
             pdf_path: Path to PDF file.
             dpi: Resolution for rendering PDF pages.
             page_range: Optional (start, end) page range (0-indexed, inclusive).
+            output_dir: Optional directory to save page visualizations and JSON logs.
             **detect_kwargs: Additional arguments passed to detect().
         
         Returns:
@@ -174,6 +176,9 @@ class TextDetector:
         end = page_range[1] + 1 if page_range else len(doc)
         
         all_detections = {}
+        
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
         
         for page_num in range(start, min(end, len(doc))):
             page = doc[page_num]
@@ -197,6 +202,24 @@ class TextDetector:
             all_detections[page_num] = detections
             
             print(f"  Page {page_num + 1}/{len(doc)}: {len(detections)} regions detected")
+            
+            # Save progress incrementally after each page
+            if output_dir:
+                # Save visualization image
+                vis_img = self.visualize(img, detections)
+                vis_path = os.path.join(output_dir, f"vis_page_{page_num:04d}.png")
+                cv2.imwrite(vis_path, vis_img)
+                
+                # Save detections as JSON (strip non-serializable crop array)
+                json_dets = []
+                for det in detections:
+                    json_det = {k: v for k, v in det.items() if k != "crop"}
+                    json_dets.append(json_det)
+                
+                json_path = os.path.join(output_dir, f"detections_page_{page_num:04d}.json")
+                import json
+                with open(json_path, "w", encoding="utf-8") as f:
+                    json.dump(json_dets, f, ensure_ascii=False, indent=2)
         
         doc.close()
         
@@ -294,7 +317,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     detector = TextDetector()
-    detections = detector.detect_from_pdf(args.pdf, dpi=args.dpi)
+    detections = detector.detect_from_pdf(args.pdf, dpi=args.dpi, output_dir=args.output)
     
     print(f"\nTotal pages processed: {len(detections)}")
     for page_num, dets in detections.items():
