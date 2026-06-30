@@ -342,15 +342,21 @@ class SyntheticDataGenerator:
 
 
 if __name__ == "__main__":
-    # Generate a small synthetic dataset for testing
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Generate synthetic Japanese OCR training data")
+    parser.add_argument("--num-samples", type=int, default=100, help="Number of samples to generate")
+    parser.add_argument("--output-dir", default="data/synthetic_test", help="Output directory")
+    args = parser.parse_args()
+    
     vocab = Vocabulary.build_japanese_auction_vocab()
     
     generator = SyntheticDataGenerator(
         vocab=vocab,
-        output_dir="data/synthetic_test",
+        output_dir=args.output_dir,
         img_height=64,
         img_width=256,
     )
     
-    ann_path = generator.generate(num_samples=100)
+    ann_path = generator.generate(num_samples=args.num_samples)
     print(f"\nAnnotation file: {ann_path}")
