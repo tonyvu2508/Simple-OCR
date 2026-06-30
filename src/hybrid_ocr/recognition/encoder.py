@@ -61,16 +61,16 @@ class ConvNeXtEncoder(nn.Module):
         self.d_model = d_model
         
         # Load pretrained ConvNeXt backbone
-        if backbone == "tiny":
+        if backbone in ("tiny", "convnext_tiny"):
             weights = ConvNeXt_Tiny_Weights.DEFAULT if pretrained else None
             model = convnext_tiny(weights=weights)
             self.feature_dim = 768  # ConvNeXt-Tiny output channels
-        elif backbone == "small":
+        elif backbone in ("small", "convnext_small"):
             weights = ConvNeXt_Small_Weights.DEFAULT if pretrained else None
             model = convnext_small(weights=weights)
             self.feature_dim = 768  # ConvNeXt-Small also outputs 768
         else:
-            raise ValueError(f"Unsupported backbone: {backbone}. Use 'tiny' or 'small'.")
+            raise ValueError(f"Unsupported backbone: {backbone}. Use 'tiny', 'convnext_tiny', 'small', or 'convnext_small'.")
         
         # Extract feature layers (remove avgpool + classifier head)
         # ConvNeXt structure: features → avgpool → classifier
