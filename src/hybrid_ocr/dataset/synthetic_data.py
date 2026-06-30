@@ -151,14 +151,22 @@ class SyntheticDataGenerator:
             for ext in ("*.ttf", "*.otf", "*.ttc"):
                 fonts.extend(str(p) for p in Path(fonts_dir).glob(ext))
         
-        # Fallback: try common macOS system font paths for Japanese
+        # Fallback: try common macOS and Linux system font paths for Japanese
         if not fonts:
             system_font_paths = [
+                # macOS fallbacks
                 "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
                 "/System/Library/Fonts/ヒラギノ明朝 ProN.ttc",
                 "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
                 "/Library/Fonts/Arial Unicode.ttf",
                 "/System/Library/Fonts/Hiragino Sans GB.ttc",
+                # Linux/Ubuntu fallbacks (Takao, IPA, Noto CJK)
+                "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/truetype/takao-gothic/TakaoGothic.ttf",
+                "/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf",
+                "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+                "/usr/share/fonts/truetype/fonts-japanese-gothic.ttf",
             ]
             for font_path in system_font_paths:
                 if Path(font_path).exists():
