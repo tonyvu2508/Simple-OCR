@@ -8,7 +8,7 @@ torchaudio>=2.0.0
 ultralytics>=8.0.0
 
 # PaddleOCR Detection
-paddlepaddle>=2.5.0
+paddlepaddle-gpu>=2.5.0
 paddleocr>=2.6.0
 
 # PDF Processing
