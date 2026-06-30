@@ -1,0 +1,35 @@
+# Hybrid OCR: YOLO + ConvNeXt + Transformer
+# Core PyTorch
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+
+# YOLO Detection
+ultralytics>=8.0.0
+
+# PaddleOCR Detection
+paddlepaddle>=2.5.0
+paddleocr>=2.6.0
+
+# PDF Processing
+PyMuPDF>=1.23.0
+
+# Image Processing
+opencv-python>=4.8.0
+Pillow>=10.0.0
+albumentations>=1.3.0
+
+# Training & Metrics
+tensorboard>=2.14.0
+editdistance>=0.6.0
+tqdm>=4.65.0
+
+# Data Generation
+numpy>=1.24.0
+
+# Config
+PyYAML>=6.0
+
+# ONNX Export (optional, for inference optimization)
+# onnx>=1.14.0
+# onnxruntime>=1.15.0
