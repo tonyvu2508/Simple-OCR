@@ -12,6 +12,9 @@ import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+# Workaround for PaddlePaddle 3.x MKLDNN/onednn crash on CPU
+os.environ["PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT"] = "0"
+
 import cv2
 import numpy as np
 
