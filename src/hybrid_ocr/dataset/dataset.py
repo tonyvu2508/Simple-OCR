@@ -92,20 +92,32 @@ class OCRDataset(Dataset):
                     samples.append({"image": img_path, "label": label})
         
         elif path.is_dir():
-            # Format 2: Directory with images/ and labels.json
-            labels_file = path / "labels.json"
-            if labels_file.exists():
-                with open(labels_file, "r", encoding="utf-8") as f:
-                    labels = json.load(f)
+            # Check for annotations.json first (List format)
+            ann_file = path / "annotations.json"
+            if ann_file.exists():
+                with open(ann_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
                 
-                images_dir = path / "images"
-                if not images_dir.exists():
-                    images_dir = path
-                
-                for img_name, label in labels.items():
-                    img_path = str(images_dir / img_name)
+                for item in data:
+                    img_path = str(path / item["image"])
+                    label = item["label"]
                     if len(label) <= self.max_seq_length - 2:
                         samples.append({"image": img_path, "label": label})
+            else:
+                # Format 2: Directory with images/ and labels.json (Dict format)
+                labels_file = path / "labels.json"
+                if labels_file.exists():
+                    with open(labels_file, "r", encoding="utf-8") as f:
+                        labels = json.load(f)
+                    
+                    images_dir = path / "images"
+                    if not images_dir.exists():
+                        images_dir = path
+                    
+                    for img_name, label in labels.items():
+                        img_path = str(images_dir / img_name)
+                        if len(label) <= self.max_seq_length - 2:
+                            samples.append({"image": img_path, "label": label})
         else:
             raise ValueError(
                 f"data_path must be a JSON file or directory, got: {data_path}"
