@@ -68,16 +68,12 @@ class TextDetector:
         if device in ("gpu", "cuda"):
             paddle_device = "gpu"
         elif device == "auto":
-            import torch
-            if torch.cuda.is_available():
-                paddle_device = "gpu"
-            else:
-                try:
-                    import paddle
-                    if paddle.device.is_compiled_with_cuda():
-                        paddle_device = "gpu"
-                except ImportError:
-                    pass
+            try:
+                import paddle
+                if paddle.device.is_compiled_with_cuda():
+                    paddle_device = "gpu"
+            except ImportError:
+                pass
             
         # Initialize PaddleOCR detector only
         self.model = PaddleOCR(
