@@ -1,0 +1,104 @@
+# Recognition Model Configuration
+# ConvNeXt Encoder + Transformer Decoder
+
+# Model Architecture
+model:
+  # ConvNeXt Encoder
+  encoder:
+    backbone: convnext_tiny          # convnext_tiny, convnext_small, convnext_base
+    pretrained: true                  # Use ImageNet pretrained weights
+    feature_dim: 768                  # ConvNeXt-Tiny output channels
+    freeze_backbone: false            # Whether to freeze encoder during training
+    freeze_epochs: 5                  # Freeze encoder for first N epochs (if freeze_backbone=true)
+  
+  # Transformer Decoder
+  decoder:
+    d_model: 512                      # Model dimension
+    nhead: 8                          # Number of attention heads
+    num_decoder_layers: 6             # Number of transformer decoder layers
+    dim_feedforward: 2048             # Feedforward dimension
+    dropout: 0.1                      # Dropout rate
+    max_seq_length: 100               # Maximum output sequence length
+    decoding_strategy: greedy         # greedy or beam_search
+    beam_width: 5                     # Beam width (only for beam_search)
+
+# Input Processing
+input:
+  image_height: 64                    # Input image height (after resize)
+  image_width: 256                    # Input image width (after resize)
+  channels: 3                         # RGB input
+  use_letterbox: true                 # Pad to preserve aspect ratio
+  normalize_mean: [0.485, 0.456, 0.406]  # ImageNet normalization
+  normalize_std: [0.229, 0.224, 0.225]
+
+# Vocabulary
+vocabulary:
+  type: japanese_auction              # Vocabulary type
+  include_hiragana: true
+  include_katakana: true              # Full-width + half-width
+  include_kanji: true                 # Common kanji for vehicle documents
+  include_digits: true                # 0-9, ０-９
+  include_latin: true                 # A-Z, a-z
+  include_symbols: true               # /, -, ., 円, 万, 千, cc, km, etc.
+  kanji_source: configs/kanji_list.txt  # Path to kanji character list
+  special_tokens:
+    pad: 0
+    sos: 1
+    eos: 2
+    unk: 3
+
+# Training
+training:
+  # Stage 1: Pre-train on synthetic data
+  pretrain:
+    epochs: 50
+    batch_size: 64
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    scheduler: cosine_annealing
+    warmup_epochs: 5
+    label_smoothing: 0.1              # As recommended in the paper
+    dataset: synthetic
+  
+  # Stage 2: Fine-tune on real data
+  finetune:
+    epochs: 100
+    batch_size: 32
+    learning_rate: 0.0001             # Lower LR for fine-tuning
+    weight_decay: 0.00001
+    scheduler: cosine_annealing
+    warmup_epochs: 3
+    label_smoothing: 0.1
+    dataset: real
+  
+  # Common
+  optimizer: adamw
+  gradient_clip: 5.0
+  save_interval: 5                    # Save checkpoint every N epochs
+  eval_interval: 1                    # Evaluate every N epochs
+  checkpoint_dir: models/recognition/
+  log_dir: runs/recognition/
+
+# Data Augmentation
+augmentation:
+  # Geometric
+  perspective_distortion: 0.05        # Simulate viewing angle
+  rotation_range: 3                   # Degrees
+  
+  # Photometric
+  gaussian_noise_var: 0.01            # Sensor noise simulation
+  brightness_range: [0.8, 1.2]
+  contrast_range: [0.8, 1.2]
+  
+  # Document-specific
+  blur_probability: 0.1
+  blur_kernel_range: [3, 5]
+  jpeg_quality_range: [70, 95]        # JPEG compression artifact simulation
+
+# Inference
+inference:
+  device: auto                        # auto, cpu, cuda, mps
+  batch_size: 16
+  confidence_threshold: 0.5
+  use_onnx: false                     # Use ONNX optimized model
+  onnx_path: models/recognition/model.onnx

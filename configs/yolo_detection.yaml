@@ -1,0 +1,38 @@
+# YOLO Text Detection Configuration
+# For fine-tuning YOLOv8 on auction document text detection
+
+# Dataset paths
+path: ./data/yolo_dataset
+train: images/train
+val: images/val
+
+# Class definitions
+nc: 6  # number of classes
+names:
+  0: header_field      # Fields in header table (車名, 型式, 走行...)
+  1: auction_form      # Full 出品票 region (left-side form)
+  2: form_field        # Individual fields in form (出品番号, 型式...)
+  3: handwritten       # Handwritten text areas (注意事項申告欄)
+  4: printed_text      # Machine-printed text (セールスポイント...)
+  5: car_info          # Vehicle info at footer (車台番号, 登録番号)
+
+# Training hyperparameters
+model: yolov8s.pt       # Base model (small variant for balance of speed/accuracy)
+epochs: 100
+imgsz: 1280             # Larger input for document detail
+batch: 8
+patience: 20            # Early stopping patience
+lr0: 0.01               # Initial learning rate
+lrf: 0.01               # Final learning rate factor
+optimizer: AdamW
+augment: true
+mosaic: 0.0             # Disable mosaic for documents (preserves layout)
+mixup: 0.0              # Disable mixup for documents
+hsv_h: 0.0              # No hue augmentation
+hsv_s: 0.1              # Slight saturation variation
+hsv_v: 0.2              # Brightness variation
+degrees: 2.0            # Slight rotation
+translate: 0.05
+scale: 0.1
+flipud: 0.0             # No vertical flip (documents have fixed orientation)
+fliplr: 0.0             # No horizontal flip
