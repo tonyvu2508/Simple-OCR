@@ -100,8 +100,12 @@ class TextDetector:
                 - "confidence": Detection confidence score
                 - "crop": Cropped image (if return_crops=True)
         """
-        # Run PaddleOCR prediction
-        results = self.model.predict(image)
+        # Run PaddleOCR prediction without document preprocessor to prevent coordinate shift
+        results = self.model.predict(
+            image,
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+        )
         
         detections = []
         h, w = image.shape[:2]
