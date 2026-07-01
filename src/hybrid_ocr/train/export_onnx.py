@@ -54,15 +54,16 @@ def export_onnx(
     # 6. Create Dummy Inputs
     img_h = input_cfg.get("image_height", 64)
     img_w = input_cfg.get("image_width", 256)
+    max_seq_len = model_cfg.get("decoder", {}).get("max_seq_length", 100)
     
     dummy_images = torch.randn(1, 3, img_h, img_w, device=device)
-    dummy_targets = torch.ones(1, 20, dtype=torch.long, device=device) * vocab.sos_idx
+    dummy_targets = torch.ones(1, max_seq_len, dtype=torch.long, device=device) * vocab.sos_idx
     
     # Ensure output dir exists
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     
     # 7. Export Entire Model
-    print(f"Exporting model to ONNX format at {output_path}...")
+    print(f"Exporting model to ONNX format at {output_path} (max_seq_length={max_seq_len})...")
     torch.onnx.export(
         model,
         (dummy_images, dummy_targets),
@@ -74,8 +75,8 @@ def export_onnx(
         output_names=["logits"],
         dynamic_axes={
             "images": {0: "batch_size"},
-            "target_input": {0: "batch_size", 1: "target_length"},
-            "logits": {0: "batch_size", 1: "target_length"},
+            "target_input": {0: "batch_size"},
+            "logits": {0: "batch_size"},
         }
     )
     print("✅ Export complete!")

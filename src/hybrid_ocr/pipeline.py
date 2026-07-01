@@ -45,6 +45,12 @@ class ONNXHybridOCR:
         # Load ONNX session
         self.session = ort.InferenceSession(model_path)
         self.vocab = vocab
+        
+        # Đọc độ dài chuỗi cố định từ input shape thứ 2 (target_input) của ONNX
+        try:
+            self.max_len = int(self.session.get_inputs()[1].shape[1])
+        except (IndexError, ValueError, TypeError):
+            self.max_len = 100
 
     def predict(
         self,
@@ -52,12 +58,12 @@ class ONNXHybridOCR:
         vocab: Vocabulary,
         decoding: str = "greedy",
         beam_width: int = 5,
-        max_len: Optional[int] = 100,
+        max_len: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         if decoding != "greedy":
             print(f"  WARNING: Only 'greedy' decoding is supported for ONNX. Falling back from '{decoding}' to 'greedy'.")
             
-        max_len = max_len or 100
+        max_len = max_len or self.max_len
         
         # Convert torch Tensor to numpy
         images_np = images.cpu().numpy()
@@ -65,23 +71,26 @@ class ONNXHybridOCR:
         
         sos_idx = vocab.sos_idx
         eos_idx = vocab.eos_idx
+        pad_idx = vocab.pad_idx
         
-        # Initialize target_input (B, 1) containing SOS
-        target_input = np.ones((batch_size, 1), dtype=np.int64) * sos_idx
+        # Initialize target_input (B, max_len) filled with PAD and set SOS at index 0
+        target_input = np.ones((batch_size, max_len), dtype=np.int64) * pad_idx
+        target_input[:, 0] = sos_idx
+        
         finished = np.zeros(batch_size, dtype=bool)
         char_confidences = [[] for _ in range(batch_size)]
         
         for step in range(max_len):
-            # Run session
+            # Run session with the constant-sized target_input (B, max_len)
             inputs = {
                 "images": images_np,
                 "target_input": target_input,
             }
             outputs = self.session.run(["logits"], inputs)
-            logits = outputs[0]  # (B, tgt_len, vocab_size)
+            logits = outputs[0]  # (B, max_len, vocab_size)
             
-            # Get logits for the last step
-            next_step_logits = logits[:, -1, :]  # (B, vocab_size)
+            # Get logits at the current step (step)
+            next_step_logits = logits[:, step, :]  # (B, vocab_size)
             
             # Apply softmax to logits to get probabilities
             exp_logits = np.exp(next_step_logits - np.max(next_step_logits, axis=-1, keepdims=True))
@@ -97,8 +106,9 @@ class ONNXHybridOCR:
                     if token == eos_idx:
                         finished[i] = True
             
-            # Append token
-            target_input = np.concatenate([target_input, next_tokens[:, None]], axis=1)
+            # Append token to the next index in target_input (if not at the end)
+            if step < max_len - 1:
+                target_input[:, step + 1] = next_tokens
             
             if finished.all():
                 break
@@ -166,8 +176,13 @@ class AuctionOCRPipeline:
         vocab_path = Path(rec_model_path).parent / "vocab.json"
         if not vocab_path.exists():
             vocab_path = Path(rec_config_path).parent / "vocab.json"
+        if not vocab_path.exists():
+            vocab_path = Path("runs/finetune") / "vocab.json"
+        if not vocab_path.exists():
+            vocab_path = Path("runs/recognition") / "vocab.json"
             
         if vocab_path.exists():
+            print(f"  Loaded vocabulary from: {vocab_path}")
             self.vocab = Vocabulary.load(str(vocab_path))
         else:
             print("  WARNING: vocab.json not found, building default vocabulary")
