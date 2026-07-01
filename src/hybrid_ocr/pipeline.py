@@ -186,43 +186,60 @@ class AuctionOCRPipeline:
         )
         
         # Load Recognition model
-        print("  Loading Recognition Model (ConvNeXt + Transformer)...")
-        config = load_config(rec_config_path)
-        
-        # Try to find vocabulary alongside checkpoint or config
-        vocab_path = Path(rec_model_path).parent / "vocab.json"
-        if not vocab_path.exists():
-            vocab_path = Path(rec_config_path).parent / "vocab.json"
-        if not vocab_path.exists():
-            vocab_path = Path("runs/finetune") / "vocab.json"
-        if not vocab_path.exists():
-            vocab_path = Path("runs/recognition") / "vocab.json"
-            
-        if vocab_path.exists():
-            print(f"  Loaded vocabulary from: {vocab_path}")
-            self.vocab = Vocabulary.load(str(vocab_path))
+        if rec_model_path.lower() == "mangaocr":
+            print("  Loading Recognition Model (MangaOCR)...")
+            try:
+                from manga_ocr import MangaOcr
+            except ImportError:
+                raise ImportError(
+                    "manga-ocr is required for MangaOCR recognition: pip install manga-ocr"
+                )
+            self.mocr = MangaOcr()
+            self.rec_model_type = "mangaocr"
+            # Set dummy defaults for compatibility
+            self.img_h = 64
+            self.img_w = 256
+            self.mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+            self.std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
         else:
-            print("  WARNING: vocab.json not found, building default vocabulary")
-            self.vocab = Vocabulary.build_japanese_auction_vocab()
+            print("  Loading Recognition Model (ConvNeXt + Transformer)...")
+            self.rec_model_type = "hybrid"
+            config = load_config(rec_config_path)
             
-        if rec_model_path.endswith(".onnx"):
-            print("  Detected ONNX format. Initializing ONNX Runtime Session...")
-            self.recognizer = ONNXHybridOCR(rec_model_path, self.vocab)
-        else:
-            self.recognizer = HybridOCR.load_checkpoint(
-                rec_model_path,
-                vocab_size=self.vocab.size,
-                device=self.device,
-            )
-            self.recognizer.eval()
+            # Try to find vocabulary alongside checkpoint or config
+            vocab_path = Path(rec_model_path).parent / "vocab.json"
+            if not vocab_path.exists():
+                vocab_path = Path(rec_config_path).parent / "vocab.json"
+            if not vocab_path.exists():
+                vocab_path = Path("runs/finetune") / "vocab.json"
+            if not vocab_path.exists():
+                vocab_path = Path("runs/recognition") / "vocab.json"
+                
+            if vocab_path.exists():
+                print(f"  Loaded vocabulary from: {vocab_path}")
+                self.vocab = Vocabulary.load(str(vocab_path))
+            else:
+                print("  WARNING: vocab.json not found, building default vocabulary")
+                self.vocab = Vocabulary.build_japanese_auction_vocab()
+                
+            if rec_model_path.endswith(".onnx"):
+                print("  Detected ONNX format. Initializing ONNX Runtime Session...")
+                self.recognizer = ONNXHybridOCR(rec_model_path, self.vocab)
+            else:
+                self.recognizer = HybridOCR.load_checkpoint(
+                    rec_model_path,
+                    vocab_size=self.vocab.size,
+                    device=self.device,
+                )
+                self.recognizer.eval()
+                
+            # Target image size for recognition
+            self.img_h = config.get("input", {}).get("image_height", 64)
+            self.img_w = config.get("input", {}).get("image_width", 256)
             
-        # Target image size for recognition
-        self.img_h = config.get("input", {}).get("image_height", 64)
-        self.img_w = config.get("input", {}).get("image_width", 256)
-        
-        # Normalization
-        self.mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-        self.std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+            # Normalization
+            self.mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+            self.std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
     def _preprocess_crop(self, crop: np.ndarray) -> torch.Tensor:
         """Preprocess image crop for recognition model."""
@@ -334,40 +351,66 @@ class AuctionOCRPipeline:
         # 2. Recognition
         # Preprocessing crops
         t0 = time.perf_counter()
-        batch_size = 16
-        all_tensors = []
         
-        for det in detections:
-            crop = det["crop"]
-            if crop.size > 0:
-                tensor = self._preprocess_crop(crop)
-                all_tensors.append(tensor)
-            else:
-                det["recognized_text"] = ""
-                det["confidence"] = 0.0
-        t_prep = time.perf_counter() - t0
-                
-        # Running model inference
-        t0 = time.perf_counter()
-        if all_tensors:
-            with torch.no_grad():
-                for i in range(0, len(all_tensors), batch_size):
-                    batch_tensors = all_tensors[i:i+batch_size]
-                    batch_stack = torch.stack(batch_tensors).to(self.device)
+        if self.rec_model_type == "mangaocr":
+            # MangaOCR handles PIL images directly and doesn't use the standard preprocessing pipeline
+            t_prep = time.perf_counter() - t0
+            
+            t0 = time.perf_counter()
+            from PIL import Image
+            for det in detections:
+                crop = det["crop"]
+                if crop.size > 0:
+                    pil_crop = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
+                    # Predict using MangaOcr
+                    text = self.mocr(pil_crop)
+                    det["recognized_text"] = text
+                    det["rec_confidence"] = 1.0  # MangaOCR does not output confidence scores
+                else:
+                    det["recognized_text"] = ""
+                    det["rec_confidence"] = 0.0
                     
-                    results = self.recognizer.predict(
-                        batch_stack, self.vocab, decoding="greedy"
-                    )
+                # Clean up crops to make it JSON serializable
+                if "crop" in det:
+                    del det["crop"]
+            t_rec = time.perf_counter() - t0
+            num_crops = len(detections)
+        else:
+            batch_size = 16
+            all_tensors = []
+            
+            for det in detections:
+                crop = det["crop"]
+                if crop.size > 0:
+                    tensor = self._preprocess_crop(crop)
+                    all_tensors.append(tensor)
+                else:
+                    det["recognized_text"] = ""
+                    det["confidence"] = 0.0
+            t_prep = time.perf_counter() - t0
                     
-                    # Update detection dictionaries
-                    for j, res in enumerate(results):
-                        idx = i + j
-                        detections[idx]["recognized_text"] = res["text"]
-                        detections[idx]["rec_confidence"] = res["confidence"]
-                        # Remove crop from dict to make it JSON serializable
-                        if "crop" in detections[idx]:
-                            del detections[idx]["crop"]
-        t_rec = time.perf_counter() - t0
+            # Running model inference
+            t0 = time.perf_counter()
+            if all_tensors:
+                with torch.no_grad():
+                    for i in range(0, len(all_tensors), batch_size):
+                        batch_tensors = all_tensors[i:i+batch_size]
+                        batch_stack = torch.stack(batch_tensors).to(self.device)
+                        
+                        results = self.recognizer.predict(
+                            batch_stack, self.vocab, decoding="greedy"
+                        )
+                        
+                        # Update detection dictionaries
+                        for j, res in enumerate(results):
+                            idx = i + j
+                            detections[idx]["recognized_text"] = res["text"]
+                            detections[idx]["rec_confidence"] = res["confidence"]
+                            # Remove crop from dict to make it JSON serializable
+                            if "crop" in detections[idx]:
+                                del detections[idx]["crop"]
+            t_rec = time.perf_counter() - t0
+            num_crops = len(all_tensors)
         
         # 3. Visualization
         t0 = time.perf_counter()
@@ -388,7 +431,7 @@ class AuctionOCRPipeline:
         t_struct = time.perf_counter() - t0
         
         t_total = time.perf_counter() - t_start
-        print(f"    - [Time Summary] Detection: {t_det:.3f}s | Preprocess: {t_prep:.3f}s | Recognition (x{len(all_tensors)}): {t_rec:.3f}s | Visualization: {t_vis:.3f}s | Structure: {t_struct:.3f}s | Total: {t_total:.3f}s")
+        print(f"    - [Time Summary] Detection: {t_det:.3f}s | Preprocess: {t_prep:.3f}s | Recognition (x{num_crops}): {t_rec:.3f}s | Visualization: {t_vis:.3f}s | Structure: {t_struct:.3f}s | Total: {t_total:.3f}s")
         
         return {
             "file": img_name,
