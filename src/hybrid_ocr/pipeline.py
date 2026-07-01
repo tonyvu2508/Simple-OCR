@@ -168,13 +168,10 @@ class AuctionOCRPipeline:
                 except AttributeError:
                     w, h = draw.textsize(label, font=font)
                 
-                # Vẽ nền trắng che nét box
+                # Vẽ chữ màu đỏ trực tiếp lên ảnh dạng trong suốt (hệ PIL RGB là (255, 0, 0))
                 bg_y1 = max(0, y1 - h - 5)
-                bg_y2 = y1
-                draw.rectangle([x1, bg_y1, x1 + w + 4, bg_y2], fill=(255, 255, 255))
+                draw.text((x1 + 2, bg_y1), label, font=font, fill=(255, 0, 0))
                 
-                # Vẽ chữ màu đỏ (hệ PIL RGB là (255, 0, 0))
-                draw.text((x1 + 2, bg_y1 + 1), label, font=font, fill=(255, 0, 0))
                 
         # 3. Chuyển đổi ngược về OpenCV BGR
         vis = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
