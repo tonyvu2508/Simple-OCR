@@ -224,6 +224,9 @@ def train(
     checkpoint: Optional[str] = None,
     output_dir: str = "runs/recognition",
     num_workers: int = 0,
+    lr: Optional[float] = None,
+    epochs: Optional[int] = None,
+    unfreeze_encoder: bool = False,
 ) -> None:
     """
     Main training loop.
@@ -235,12 +238,31 @@ def train(
         stage: Training stage ('pretrain' or 'finetune').
         checkpoint: Path to resume from or finetune from.
         output_dir: Output directory for checkpoints.
+        num_workers: Number of workers for data loader.
+        lr: Override learning rate from command line.
+        epochs: Override epochs from command line.
+        unfreeze_encoder: Force unfreeze encoder backbone.
     """
     # Load config
     config = load_config(config_path)
     stage_cfg = config.get("training", {}).get(stage, {})
     if not stage_cfg:
         raise ValueError(f"No configuration found for training stage: {stage}")
+    
+    # Apply command-line overrides
+    if lr is not None:
+        print(f"Overriding learning rate to: {lr}")
+        stage_cfg["learning_rate"] = lr
+    if epochs is not None:
+        print(f"Overriding epochs to: {epochs}")
+        stage_cfg["epochs"] = epochs
+    if unfreeze_encoder:
+        print("Overriding freeze_backbone to: False (Unfreezing encoder backbone)")
+        if "model" not in config:
+            config["model"] = {}
+        if "encoder" not in config["model"]:
+            config["model"]["encoder"] = {}
+        config["model"]["encoder"]["freeze_backbone"] = False
     
     os.makedirs(output_dir, exist_ok=True)
     
@@ -455,6 +477,9 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint", help="Path to checkpoint to resume/finetune from")
     parser.add_argument("--output", default="runs/recognition")
     parser.add_argument("--num-workers", type=int, default=0, help="Number of worker processes for data loader")
+    parser.add_argument("--lr", type=float, help="Override learning rate")
+    parser.add_argument("--epochs", type=int, help="Override number of epochs")
+    parser.add_argument("--unfreeze-encoder", action="store_true", help="Force unfreeze encoder backbone")
     
     args = parser.parse_args()
     
@@ -466,4 +491,7 @@ if __name__ == "__main__":
         checkpoint=args.checkpoint,
         output_dir=args.output,
         num_workers=args.num_workers,
+        lr=args.lr,
+        epochs=args.epochs,
+        unfreeze_encoder=args.unfreeze_encoder,
     )
