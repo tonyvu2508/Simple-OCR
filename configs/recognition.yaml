@@ -78,6 +78,7 @@ training:
   eval_interval: 1                    # Evaluate every N epochs
   checkpoint_dir: models/recognition/
   log_dir: runs/recognition/
+  num_workers: 4                      # Number of data loader workers (0 to disable / prevent shared memory limits)
 
 # Data Augmentation
 augmentation:

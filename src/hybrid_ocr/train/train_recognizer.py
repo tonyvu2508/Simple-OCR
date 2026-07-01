@@ -300,13 +300,17 @@ def train(
         is_train=False,
     )
     
+    # Resolve num_workers (CLI overrides config, config overrides default 0)
+    cfg_num_workers = config.get("training", {}).get("num_workers", 0)
+    final_num_workers = num_workers if num_workers != 0 else cfg_num_workers
+    
     batch_size = stage_cfg.get("batch_size", 32)
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
         collate_fn=collate_fn,
-        num_workers=num_workers,
+        num_workers=final_num_workers,
         pin_memory=True,
     )
     
@@ -315,7 +319,7 @@ def train(
         batch_size=batch_size,
         shuffle=False,
         collate_fn=collate_fn,
-        num_workers=num_workers,
+        num_workers=final_num_workers,
         pin_memory=True,
     )
     

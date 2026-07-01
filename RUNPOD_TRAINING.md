@@ -53,11 +53,12 @@ python -m src.hybrid_ocr.train.train_recognizer \
     --config configs/recognition.yaml \
     --train-data data/synth_train \
     --val-data data/synth_val \
-    --stage pretrain
+    --stage pretrain \
+    --num-workers 4
 ```
 
 ### Lệnh chạy tiếp tục (Resume Training)
-Nếu bạn bị đứt kết nối, lỗi máy chủ, hoặc đổi GPU (vẫn giữ nguyên ổ cứng Network Volume), bạn có thể chạy tiếp tục từ checkpoint cuối cùng (không bị mất epoch) bằng cách thêm cờ `--checkpoint`:
+Nếu bạn bị đứt kết nối, lỗi máy chủ, hoặc đổi GPU, bạn có thể chạy tiếp tục bằng cách thêm cờ `--checkpoint`:
 
 ```bash
 python -m src.hybrid_ocr.train.train_recognizer \
@@ -65,8 +66,16 @@ python -m src.hybrid_ocr.train.train_recognizer \
     --train-data data/synth_train \
     --val-data data/synth_val \
     --stage pretrain \
-    --checkpoint runs/recognition/model_last.pt
+    --checkpoint runs/recognition/model_last.pt \
+    --num-workers 4
 ```
+
+> [!TIP]
+> **Tối ưu hóa Tốc độ với `num_workers`:**
+> - Bạn có thể cấu hình nhanh tham số này trực tiếp trong file cấu hình tại dòng `num_workers: 4` ở phần `# Common` của tệp `configs/recognition.yaml`.
+> - Trên máy cấu hình yếu hoặc Docker giới hạn (như một số GPU giá rẻ), hãy để `num_workers: 0` để tránh lỗi `Bus Error`.
+> - Trên các GPU mạnh mẽ có lượng bộ nhớ chia sẻ lớn (như L40, RTX 4090 trên RunPod), hãy tăng lên `num_workers: 4` hoặc `num_workers: 8` để nạp dữ liệu song song từ CPU lên GPU, giúp tăng tốc độ huấn luyện lên gấp nhiều lần!
+> - *(Bạn vẫn có thể ghi đè giá trị này lúc chạy lệnh bằng cách thêm cờ `--num-workers <số_worker>` vào câu lệnh)*
 
 *Trong quá trình học, những checkpoint tốt nhất (CER thấp nhất) sẽ được tự động lưu tại `models/recognition/model_best.pt`.*
 
