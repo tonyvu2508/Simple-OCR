@@ -200,6 +200,7 @@ def train(
     stage: str = "pretrain",
     checkpoint: Optional[str] = None,
     output_dir: str = "runs/recognition",
+    num_workers: int = 0,
 ) -> None:
     """
     Main training loop.
@@ -305,7 +306,7 @@ def train(
         batch_size=batch_size,
         shuffle=True,
         collate_fn=collate_fn,
-        num_workers=0,  # Set to 0 to prevent Bus Error / Shared Memory limits in Docker
+        num_workers=num_workers,
         pin_memory=True,
     )
     
@@ -314,7 +315,7 @@ def train(
         batch_size=batch_size,
         shuffle=False,
         collate_fn=collate_fn,
-        num_workers=0,  # Set to 0 to prevent Bus Error / Shared Memory limits in Docker
+        num_workers=num_workers,
         pin_memory=True,
     )
     
@@ -411,14 +412,16 @@ if __name__ == "__main__":
     parser.add_argument("--stage", choices=["pretrain", "finetune"], default="pretrain")
     parser.add_argument("--checkpoint", help="Path to checkpoint to resume/finetune from")
     parser.add_argument("--output", default="runs/recognition")
+    parser.add_argument("--num-workers", type=int, default=0, help="Number of worker processes for data loader")
     
     args = parser.parse_args()
     
     train(
-        args.config,
-        args.train_data,
-        args.val_data,
-        args.stage,
-        args.checkpoint,
-        args.output,
+        config_path=args.config,
+        train_data_path=args.train_data,
+        val_data_path=args.val_data,
+        stage=args.stage,
+        checkpoint=args.checkpoint,
+        output_dir=args.output,
+        num_workers=args.num_workers,
     )
