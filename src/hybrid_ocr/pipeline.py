@@ -234,7 +234,6 @@ class AuctionOCRPipeline:
                     "transformers is required for GLM-OCR: pip install transformers"
                 )
             
-            import torch
             py_device = "cpu"
             if self.device == "cuda":
                 py_device = "cuda"
@@ -461,14 +460,34 @@ class AuctionOCRPipeline:
                     
                     # Generate output
                     with torch.no_grad():
-                        output = self.glm_model.generate(**inputs, max_new_tokens=128)
+                        output_dict = self.glm_model.generate(
+                            **inputs, 
+                            max_new_tokens=128,
+                            return_dict_in_generate=True,
+                            output_scores=True
+                        )
                         
                     # Decode only the generated response
+                    sequences = output_dict.sequences[0]
                     prompt_len = inputs["input_ids"].shape[1]
-                    text = self.glm_processor.decode(output[0][prompt_len:], skip_special_tokens=True)
+                    gen_tokens = sequences[prompt_len:]
+                    text = self.glm_processor.decode(gen_tokens, skip_special_tokens=True)
+                    
+                    # Calculate confidence from logits
+                    if len(gen_tokens) > 0 and hasattr(output_dict, "scores") and len(output_dict.scores) > 0:
+                        token_probs = []
+                        for t, token_id in enumerate(gen_tokens):
+                            if t < len(output_dict.scores):
+                                logits = output_dict.scores[t][0]
+                                probs = torch.softmax(logits, dim=-1)
+                                token_probs.append(float(probs[token_id].item()))
+                        
+                        confidence = sum(token_probs) / len(token_probs) if token_probs else 1.0
+                    else:
+                        confidence = 1.0
                     
                     det["recognized_text"] = text.strip()
-                    det["rec_confidence"] = 1.0
+                    det["rec_confidence"] = confidence
                 else:
                     det["recognized_text"] = ""
                     det["rec_confidence"] = 0.0
