@@ -244,10 +244,13 @@ def train(
     print("Building model...")
     model = build_model_from_config(config["model"], vocab)
     
+    start_epoch = 1
+    checkpoint_data = None
     if checkpoint:
-        print(f"Loading checkpoint: {checkpoint}")
-        model = HybridOCR.load_checkpoint(checkpoint, vocab_size=vocab.size, device=device)
-    
+        print(f"Loading checkpoint weights from: {checkpoint}")
+        checkpoint_data = torch.load(checkpoint, map_location=device, weights_only=False)
+        model.load_state_dict(checkpoint_data["model_state_dict"])
+        
     model = model.to(device)
     
     # Setup Data
@@ -292,7 +295,7 @@ def train(
         batch_size=batch_size,
         shuffle=True,
         collate_fn=collate_fn,
-        num_workers=4,
+        num_workers=0,  # Set to 0 to prevent Bus Error / Shared Memory limits in Docker
         pin_memory=True,
     )
     
@@ -301,7 +304,7 @@ def train(
         batch_size=batch_size,
         shuffle=False,
         collate_fn=collate_fn,
-        num_workers=4,
+        num_workers=0,  # Set to 0 to prevent Bus Error / Shared Memory limits in Docker
         pin_memory=True,
     )
     
@@ -327,13 +330,25 @@ def train(
         ignore_index=vocab.pad_idx,
     ).to(device)
     
+    # Restore optimizer/scheduler states if resuming
+    if checkpoint_data:
+        if "optimizer_state_dict" in checkpoint_data:
+            optimizer.load_state_dict(checkpoint_data["optimizer_state_dict"])
+            print("  Restored optimizer state")
+        if "scheduler_state_dict" in checkpoint_data:
+            scheduler.load_state_dict(checkpoint_data["scheduler_state_dict"])
+            print("  Restored scheduler state")
+        if "epoch" in checkpoint_data:
+            start_epoch = checkpoint_data["epoch"] + 1
+            print(f"  Resuming from epoch {start_epoch}")
+            
     clip_grad = config.get("training", {}).get("gradient_clip", 5.0)
     
     # Training Loop
-    print(f"\nStarting {stage} for {epochs} epochs...")
+    print(f"\nStarting {stage} from epoch {start_epoch} to {epochs}...")
     best_cer = float("inf")
     
-    for epoch in range(1, epochs + 1):
+    for epoch in range(start_epoch, epochs + 1):
         print(f"\nEpoch {epoch}/{epochs}")
         
         train_loss = train_epoch(
@@ -361,12 +376,18 @@ def train(
         
         # Save checkpoints
         save_path = Path(output_dir) / f"model_last.pt"
-        model.save_checkpoint(str(save_path), {"epoch": epoch, "cer": val_cer})
+        extra_info = {
+            "epoch": epoch,
+            "cer": val_cer,
+            "optimizer_state_dict": optimizer.state_dict(),
+            "scheduler_state_dict": scheduler.state_dict(),
+        }
+        model.save_checkpoint(str(save_path), extra_info)
         
         if val_cer < best_cer:
             best_cer = val_cer
             best_path = Path(output_dir) / f"model_best.pt"
-            model.save_checkpoint(str(best_path), {"epoch": epoch, "cer": val_cer})
+            model.save_checkpoint(str(best_path), extra_info)
             print(f"New best model saved! (CER: {best_cer:.4f})")
             
     print("\nTraining complete!")
