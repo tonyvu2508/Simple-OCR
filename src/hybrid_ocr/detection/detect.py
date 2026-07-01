@@ -91,8 +91,30 @@ class TextDetector:
             print("  Initializing Surya DetectionPredictor...")
             self.model = DetectionPredictor()
             
+        elif self.detector_type == "mmocr":
+            try:
+                from mmocr.apis import MMOCRInferencer
+            except ImportError:
+                raise ImportError(
+                    "mmocr is required for MMOCR detection. Please install openmim, mim, and mmocr:\n"
+                    "pip install openmim\n"
+                    "mim install 'mmengine>=0.1.0' 'mmcv>=2.0.0rc4' 'mmdet>=3.0.0'\n"
+                    "pip install mmocr"
+                )
+            
+            import torch
+            py_device = "cpu"
+            if device == "auto":
+                py_device = "cuda" if torch.cuda.is_available() else "mps" if hasattr(torch.backends, "mps") and torch.backends.mps.is_available() else "cpu"
+            else:
+                py_device = device
+                
+            print(f"  MMOCR loading detector model (DBNet++) on device: {py_device}")
+            # Khởi tạo MMOCRInferencer chỉ với module phát hiện (det), tắt nhận dạng (rec)
+            self.model = MMOCRInferencer(det="DBNet++", rec=None, device=py_device)
+            
         else:
-            raise ValueError(f"Unknown detector_type: {detector_type}. Supported: ['paddle', 'yolo', 'surya']")
+            raise ValueError(f"Unknown detector_type: {detector_type}. Supported: ['paddle', 'yolo', 'surya', 'mmocr']")
 
     def detect(
         self,
@@ -200,6 +222,37 @@ class TextDetector:
                     "confidence": 1.0,
                     "text": "",
                 })
+                
+        elif self.detector_type == "mmocr":
+            # MMOCRInferencer mong muốn ảnh màu RGB
+            rgb_img = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            result = self.model(rgb_img)
+            
+            predictions = result.get("predictions", [])
+            if predictions:
+                polygons = predictions[0].get("det_polygons", [])
+                scores = predictions[0].get("det_scores", [])
+                
+                for i, poly in enumerate(polygons):
+                    # MMOCR 1.x trả về danh sách các đỉnh của đa giác [x1, y1, x2, y2, ...]
+                    pts = np.array(poly, dtype=np.int32).reshape(-1, 2)
+                    x1, y1 = pts.min(axis=0)
+                    x2, y2 = pts.max(axis=0)
+                    
+                    x1 = max(0, x1 - crop_padding)
+                    y1 = max(0, y1 - crop_padding)
+                    x2 = min(w, x2 + crop_padding)
+                    y2 = min(h, y2 + crop_padding)
+                    
+                    score = scores[i] if i < len(scores) else 1.0
+                    
+                    detections.append({
+                        "bbox": (int(x1), int(y1), int(x2), int(y2)),
+                        "class_id": 4,
+                        "class_name": DETECTION_CLASSES[4],
+                        "confidence": float(score),
+                        "text": "",
+                    })
                 
         # Populate crops and apply deskew if requested
         for det in detections:
