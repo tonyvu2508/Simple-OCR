@@ -184,5 +184,33 @@ python -m src.hybrid_ocr.train.train_recognizer \
 *   `--epochs 20`: Chỉ chạy thêm 20 epoch ngắn.
 *   `--output runs/finetune_stage2`: Lưu checkpoint kết quả cuối cùng ra một thư mục riêng biệt.
 
+---
+
+## 6. Chạy Suy Diễn / Dự Đoán (Inference Pipeline)
+
+Script `src/hybrid_ocr/pipeline.py` cung cấp đường ống đầu-cuối từ đọc tệp PDF, cắt dòng chữ, nhận diện và lưu kết quả cấu trúc hóa. Bạn có thể sử dụng các tham số sau để tối ưu hóa tốc độ và chất lượng:
+
+### Lệnh chạy mẫu:
+```bash
+python -m src.hybrid_ocr.pipeline \
+    --pdf pdfs/2026年6月25日-JU愛知-2163-通常車-151-200.pdf \
+    --yolo-model yolov8s.pt \
+    --rec-model runs/finetune_stage2/model_best.pt \
+    --output runs/inference_test \
+    --pages 0-1 \
+    --use-clahe \
+    --detector surya
+```
+
+### Các cờ tùy chọn cấu hình:
+
+| Tham số | Giá trị | Mô tả |
+| :--- | :--- | :--- |
+| `--detector` | `paddle` (mặc định) \| `yolo` \| `surya` | Chọn mô hình phát hiện khung chữ. `surya` cho chất lượng tài liệu tốt nhất, `yolo` cho tốc độ nhanh nhất trên Mac Mini (MPS). |
+| `--rec-model` | Đường dẫn `.pt` \| `.onnx` \| `mangaocr` | Mô hình nhận dạng chữ. Bạn có thể truyền checkpoint PyTorch gốc, tệp ONNX hoặc gõ chữ `mangaocr` để dùng mô hình nhận dạng MangaOCR. |
+| `--use-clahe` | Không cần giá trị (cờ bật) | Kích hoạt bộ lọc cân bằng ánh sáng cục bộ CLAHE giúp cải thiện độ tương phản cho nét chữ viết tay mờ/nhạt màu. |
+| `--pages` | Ví dụ: `0-4`, `0` hoặc `all` | Chỉ định các trang cần xử lý (bắt đầu từ 0). |
+| `--output` | Đường dẫn thư mục | Thư mục lưu tệp kết quả JSON và ảnh vẽ Bounding Box. |
+
 
 
