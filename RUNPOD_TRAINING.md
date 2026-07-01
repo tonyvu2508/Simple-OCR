@@ -137,6 +137,16 @@ python -m scratch.extract_fine_tune_data \
 Mở tệp `data/real_fine_tune/labels.json` để kiểm tra nhanh. Do được gán nhãn tự động từ mô hình OCR mạnh của Paddle, tỷ lệ chính xác rất cao. Bạn chỉ cần điều chỉnh lại một số ít chữ viết tay quá mờ hoặc bị lỗi nhận diện trước khi bắt đầu huấn luyện.
 
 ### Bước 3: Huấn Luyện Fine-tuning
+> [!IMPORTANT]
+> **ĐỒNG BỘ TỆP TỪ VỰNG (VOCABULARY SYNC):**
+> Trước khi khởi chạy lệnh fine-tune với thư mục output riêng biệt (`--output runs/finetune`), bạn **bắt buộc** phải sao chép tệp `vocab.json` từ thư mục pre-train sang thư mục đầu ra mới.
+> Nếu không thực hiện, script sẽ tự động sinh lại một bộ từ vựng mới làm thay đổi toàn bộ index ký tự, khiến mô hình bị lỗi nghiêm trọng (Accuracy cực thấp và CER > 100%).
+> 
+> Chạy lệnh sau để đồng bộ trước:
+> ```bash
+> mkdir -p runs/finetune && cp runs/recognition/vocab.json runs/finetune/vocab.json
+> ```
+
 Chạy lệnh huấn luyện với tham số `--stage finetune` và trỏ `--checkpoint` tới mô hình tốt nhất thu được ở giai đoạn pre-train:
 
 ```bash
@@ -150,4 +160,29 @@ python -m src.hybrid_ocr.train.train_recognizer \
     --num-workers 8
 ```
 *(Lưu ý: Bằng việc thêm cờ `--output runs/finetune`, các checkpoint trong quá trình fine-tune sẽ được lưu riêng biệt tại thư mục `runs/finetune/` và không đè lên các checkpoint của giai đoạn pre-train trước đó. Có thể giảm `learning_rate` xuống nhỏ hơn nữa trong cấu hình `finetune` tại `configs/recognition.yaml` để quá trình học chuyển tiếp diễn ra mượt mà).*
+
+### Bước 4: Tinh Chỉnh Sâu Hơn (Stage 2 Fine-tuning - Mở khóa Encoder)
+Sau khi kết thúc 100 epoch với Encoder được đóng băng, nếu bạn muốn tinh chỉnh sâu hơn cả bộ trích xuất ảnh ConvNeXt để đạt độ chính xác tối đa, hãy chạy lượt fine-tune ngắn (ví dụ: 20 epoch) từ checkpoint tốt nhất của Stage 1 bằng cách sử dụng các tham số ghi đè dòng lệnh sau:
+
+```bash
+python -m src.hybrid_ocr.train.train_recognizer \
+    --config configs/recognition.yaml \
+    --train-data data/real_fine_tune \
+    --val-data data/real_fine_tune \
+    --stage finetune \
+    --checkpoint runs/finetune/model_best.pt \
+    --output runs/finetune_stage2 \
+    --num-workers 8 \
+    --unfreeze-encoder \
+    --lr 0.000001 \
+    --epochs 20
+```
+
+**Chi tiết các cờ linh hoạt được bổ sung:**
+*   `--unfreeze-encoder`: Ép buộc mở khóa toàn bộ trọng số của bộ xương ConvNeXt Encoder (mặc định cấu hình fine-tune của yaml là đóng băng).
+*   `--lr 0.000001` (`1e-6`): Đặt tốc độ học siêu nhỏ để tránh phá hủy các trọng số tốt đã học.
+*   `--epochs 20`: Chỉ chạy thêm 20 epoch ngắn.
+*   `--output runs/finetune_stage2`: Lưu checkpoint kết quả cuối cùng ra một thư mục riêng biệt.
+
+
 
