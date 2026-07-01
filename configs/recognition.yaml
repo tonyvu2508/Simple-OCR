@@ -8,8 +8,8 @@ model:
     backbone: convnext_tiny          # convnext_tiny, convnext_small, convnext_base
     pretrained: true                  # Use ImageNet pretrained weights
     feature_dim: 768                  # ConvNeXt-Tiny output channels
-    freeze_backbone: false            # Whether to freeze encoder during training
-    freeze_epochs: 5                  # Freeze encoder for first N epochs (if freeze_backbone=true)
+    freeze_backbone: true            # Whether to freeze encoder during training
+    freeze_epochs: 50                  # Freeze encoder for first N epochs (if freeze_backbone=true)
   
   # Transformer Decoder
   decoder:
@@ -64,7 +64,7 @@ training:
   finetune:
     epochs: 100
     batch_size: 32
-    learning_rate: 0.0001             # Lower LR for fine-tuning
+    learning_rate: 0.00001             # Lower LR for fine-tuning
     weight_decay: 0.00001
     scheduler: cosine_annealing
     warmup_epochs: 3
