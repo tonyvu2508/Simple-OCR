@@ -32,6 +32,98 @@ from .train.config import load_config
 from .postprocess import extract_structured_data
 
 
+class ONNXHybridOCR:
+    """
+    ONNX wrapper for HybridOCR model to run inference using onnxruntime.
+    """
+    def __init__(self, model_path: str, vocab: Vocabulary):
+        try:
+            import onnxruntime as ort
+        except ImportError:
+            raise ImportError("onnxruntime is required to run ONNX inference: pip install onnxruntime")
+        
+        # Load ONNX session
+        self.session = ort.InferenceSession(model_path)
+        self.vocab = vocab
+
+    def predict(
+        self,
+        images: torch.Tensor,
+        vocab: Vocabulary,
+        decoding: str = "greedy",
+        beam_width: int = 5,
+        max_len: Optional[int] = 100,
+    ) -> List[Dict[str, Any]]:
+        if decoding != "greedy":
+            print(f"  WARNING: Only 'greedy' decoding is supported for ONNX. Falling back from '{decoding}' to 'greedy'.")
+            
+        max_len = max_len or 100
+        
+        # Convert torch Tensor to numpy
+        images_np = images.cpu().numpy()
+        batch_size = images_np.shape[0]
+        
+        sos_idx = vocab.sos_idx
+        eos_idx = vocab.eos_idx
+        
+        # Initialize target_input (B, 1) containing SOS
+        target_input = np.ones((batch_size, 1), dtype=np.int64) * sos_idx
+        finished = np.zeros(batch_size, dtype=bool)
+        char_confidences = [[] for _ in range(batch_size)]
+        
+        for step in range(max_len):
+            # Run session
+            inputs = {
+                "images": images_np,
+                "target_input": target_input,
+            }
+            outputs = self.session.run(["logits"], inputs)
+            logits = outputs[0]  # (B, tgt_len, vocab_size)
+            
+            # Get logits for the last step
+            next_step_logits = logits[:, -1, :]  # (B, vocab_size)
+            
+            # Apply softmax to logits to get probabilities
+            exp_logits = np.exp(next_step_logits - np.max(next_step_logits, axis=-1, keepdims=True))
+            probs = exp_logits / np.sum(exp_logits, axis=-1, keepdims=True)
+            
+            next_tokens = np.argmax(probs, axis=-1)  # (B,)
+            
+            # Update target_input and finished status
+            for i in range(batch_size):
+                if not finished[i]:
+                    token = next_tokens[i]
+                    char_confidences[i].append(float(probs[i, token]))
+                    if token == eos_idx:
+                        finished[i] = True
+            
+            # Append token
+            target_input = np.concatenate([target_input, next_tokens[:, None]], axis=1)
+            
+            if finished.all():
+                break
+                
+        results = []
+        for i in range(batch_size):
+            tokens = target_input[i].tolist()
+            clean_tokens = []
+            for t in tokens:
+                clean_tokens.append(t)
+                if t == eos_idx:
+                    break
+            text = vocab.decode(clean_tokens)
+            avg_confidence = sum(char_confidences[i]) / len(char_confidences[i]) if char_confidences[i] else 0.0
+            
+            results.append({
+                "text": text,
+                "tokens": clean_tokens,
+                "confidence": avg_confidence,
+                "char_confidences": char_confidences[i],
+            })
+            
+        return results
+
+
 class AuctionOCRPipeline:
     """
     End-to-end OCR pipeline for Japanese auction documents.
@@ -81,13 +173,17 @@ class AuctionOCRPipeline:
             print("  WARNING: vocab.json not found, building default vocabulary")
             self.vocab = Vocabulary.build_japanese_auction_vocab()
             
-        self.recognizer = HybridOCR.load_checkpoint(
-            rec_model_path,
-            vocab_size=self.vocab.size,
-            device=self.device,
-        )
-        self.recognizer.eval()
-        
+        if rec_model_path.endswith(".onnx"):
+            print("  Detected ONNX format. Initializing ONNX Runtime Session...")
+            self.recognizer = ONNXHybridOCR(rec_model_path, self.vocab)
+        else:
+            self.recognizer = HybridOCR.load_checkpoint(
+                rec_model_path,
+                vocab_size=self.vocab.size,
+                device=self.device,
+            )
+            self.recognizer.eval()
+            
         # Target image size for recognition
         self.img_h = config.get("input", {}).get("image_height", 64)
         self.img_w = config.get("input", {}).get("image_width", 256)
