@@ -81,22 +81,15 @@ class TextDetector:
             
         elif self.detector_type == "surya":
             try:
-                from surya.model.detection.model import load_model as load_det_model, load_processor as load_det_processor
+                from surya.detection import DetectionPredictor
             except ImportError:
                 raise ImportError(
                     "surya-ocr is required for Surya detection: pip install surya-ocr"
                 )
             
-            import torch
-            py_device = "cpu"
-            if device == "auto":
-                py_device = "cuda" if torch.cuda.is_available() else "mps" if hasattr(torch.backends, "mps") and torch.backends.mps.is_available() else "cpu"
-            else:
-                py_device = device
-                
-            print(f"  Surya loading detector model on device: {py_device}")
-            self.model = load_det_model(device=py_device)
-            self.processor = load_det_processor()
+            # Khởi tạo đối tượng Predictor tự động nạp model/processor
+            print("  Initializing Surya DetectionPredictor...")
+            self.model = DetectionPredictor()
             
         else:
             raise ValueError(f"Unknown detector_type: {detector_type}. Supported: ['paddle', 'yolo', 'surya']")
@@ -187,10 +180,9 @@ class TextDetector:
                 
         elif self.detector_type == "surya":
             from PIL import Image
-            from surya.detection import batch_detection
             # Convert BGR to PIL RGB
             pil_img = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-            predictions = batch_detection([pil_img], self.model, self.processor)
+            predictions = self.model([pil_img])
             det_res = predictions[0]
             
             for box in det_res.bboxes:
