@@ -158,9 +158,11 @@ class AuctionOCRPipeline:
         rec_config_path: str,
         device: str = "auto",
         use_clahe: bool = False,
+        detector_type: str = "paddle",
     ):
         print("Initializing Hybrid OCR Pipeline...")
         self.use_clahe = use_clahe
+        self.detector_type = detector_type
         
         # Determine device
         if device == "auto":
@@ -175,11 +177,12 @@ class AuctionOCRPipeline:
             
         print(f"  Using device: {self.device}")
         
-        # Load YOLO detector
-        print("  Loading Detection Model (YOLO)...")
+        # Load detector
+        print(f"  Loading Detection Model ({detector_type.upper()})...")
         self.detector = TextDetector(
             model_path=yolo_model_path,
             device=self.device,
+            detector_type=self.detector_type,
         )
         
         # Load Recognition model
@@ -447,6 +450,12 @@ if __name__ == "__main__":
         help="Pages to process, e.g. '0' (page 1), '0-4' (pages 1 to 5), or 'all' (default)"
     )
     parser.add_argument("--use-clahe", action="store_true", help="Use CLAHE local contrast enhancement on crops")
+    parser.add_argument(
+        "--detector",
+        choices=["paddle", "yolo", "surya"],
+        default="paddle",
+        help="Detector backend to use for finding text boxes ('paddle', 'yolo', or 'surya')"
+    )
     
     args = parser.parse_args()
     
@@ -471,6 +480,7 @@ if __name__ == "__main__":
         rec_model_path=args.rec_model,
         rec_config_path=args.rec_config,
         use_clahe=args.use_clahe,
+        detector_type=args.detector,
     )
     
     pipeline.process_pdf(args.pdf, output_dir=args.output, page_range=page_range)

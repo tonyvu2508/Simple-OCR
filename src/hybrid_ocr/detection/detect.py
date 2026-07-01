@@ -53,28 +53,53 @@ class TextDetector:
         iou_threshold: float = 0.45,
         device: str = "auto",
         imgsz: int = 1280,
+        detector_type: str = "paddle",
     ):
         self.confidence_threshold = confidence_threshold
+        self.detector_type = detector_type.lower()
+        self.device = device
         
-        try:
-            from paddleocr import PaddleOCR
-        except ImportError:
-            raise ImportError(
-                "paddleocr is required for detection: pip install paddleocr"
-            )
+        if self.detector_type == "paddle":
+            try:
+                from paddleocr import PaddleOCR
+            except ImportError:
+                raise ImportError(
+                    "paddleocr is required for detection: pip install paddleocr"
+                )
+            self.model = PaddleOCR(lang="japan")
             
-        use_gpu = False
-        if device == "auto":
+        elif self.detector_type == "yolo":
+            try:
+                from ultralytics import YOLO
+            except ImportError:
+                raise ImportError(
+                    "ultralytics is required for YOLO detection: pip install ultralytics"
+                )
+            yolo_path = model_path if model_path else "yolov8s.pt"
+            print(f"  YOLO loading detector weights from: {yolo_path}")
+            self.model = YOLO(yolo_path)
+            
+        elif self.detector_type == "surya":
+            try:
+                from surya.model.detection.model import load_model as load_det_model, load_processor as load_det_processor
+            except ImportError:
+                raise ImportError(
+                    "surya-ocr is required for Surya detection: pip install surya-ocr"
+                )
+            
             import torch
-            if torch.cuda.is_available():
-                use_gpu = True
-        elif device == "cuda":
-            use_gpu = True
+            py_device = "cpu"
+            if device == "auto":
+                py_device = "cuda" if torch.cuda.is_available() else "mps" if hasattr(torch.backends, "mps") and torch.backends.mps.is_available() else "cpu"
+            else:
+                py_device = device
+                
+            print(f"  Surya loading detector model on device: {py_device}")
+            self.model = load_det_model(device=py_device)
+            self.processor = load_det_processor()
             
-        # Initialize PaddleOCR detector only
-        self.model = PaddleOCR(
-            lang="japan",
-        )
+        else:
+            raise ValueError(f"Unknown detector_type: {detector_type}. Supported: ['paddle', 'yolo', 'surya']")
 
     def detect(
         self,
@@ -84,7 +109,7 @@ class TextDetector:
         crop_padding: int = 5,
     ) -> List[Dict]:
         """
-        Detect text regions in a page image using PaddleOCR.
+        Detect text regions in a page image.
         
         Args:
             image: Page image (H, W, 3), BGR format.
@@ -95,64 +120,106 @@ class TextDetector:
         Returns:
             List of detection dictionaries:
                 - "bbox": (x1, y1, x2, y2) bounding box coordinates
-                - "class_id": Integer class ID (always 4 for printed_text)
+                - "class_id": Integer class ID
                 - "class_name": String class name
                 - "confidence": Detection confidence score
                 - "crop": Cropped image (if return_crops=True)
         """
-        # Run PaddleOCR prediction without document preprocessor to prevent coordinate shift
-        results = self.model.predict(
-            image,
-            use_doc_orientation_classify=False,
-            use_doc_unwarping=False,
-        )
-        
-        detections = []
         h, w = image.shape[:2]
+        detections = []
         
-        if results and len(results) > 0:
-            result = results[0]
-            dt_polys = result.get("dt_polys", [])
-            rec_texts = result.get("rec_texts", [])
-            rec_scores = result.get("rec_scores", [])
-            
-            for i, box in enumerate(dt_polys):
-                # box structure is 4 points: [[x1, y1], [x2, y2], [x3, y3], [x4, y4]]
-                pts = np.array(box, dtype=np.int32)
-                x1, y1 = pts.min(axis=0)
-                x2, y2 = pts.max(axis=0)
+        if self.detector_type == "paddle":
+            # Run PaddleOCR prediction
+            results = self.model.predict(
+                image,
+                use_doc_orientation_classify=False,
+                use_doc_unwarping=False,
+            )
+            if results and len(results) > 0:
+                result = results[0]
+                dt_polys = result.get("dt_polys", [])
+                rec_texts = result.get("rec_texts", [])
+                rec_scores = result.get("rec_scores", [])
                 
-                # Apply padding (clamped to image bounds)
+                for i, box in enumerate(dt_polys):
+                    pts = np.array(box, dtype=np.int32)
+                    x1, y1 = pts.min(axis=0)
+                    x2, y2 = pts.max(axis=0)
+                    
+                    x1 = max(0, x1 - crop_padding)
+                    y1 = max(0, y1 - crop_padding)
+                    x2 = min(w, x2 + crop_padding)
+                    y2 = min(h, y2 + crop_padding)
+                    
+                    text = rec_texts[i] if i < len(rec_texts) else ""
+                    score = rec_scores[i] if i < len(rec_scores) else 0.99
+                    
+                    detections.append({
+                        "bbox": (int(x1), int(y1), int(x2), int(y2)),
+                        "class_id": 4,
+                        "class_name": DETECTION_CLASSES[4],
+                        "confidence": float(score),
+                        "text": text,
+                    })
+                    
+        elif self.detector_type == "yolo":
+            # Run YOLOv8 prediction
+            results = self.model(image, conf=self.confidence_threshold, verbose=False)
+            boxes = results[0].boxes
+            for box in boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                conf = float(box.conf[0].item())
+                class_id = int(box.cls[0].item())
+                class_name = self.model.names[class_id]
+                
                 x1 = max(0, x1 - crop_padding)
                 y1 = max(0, y1 - crop_padding)
                 x2 = min(w, x2 + crop_padding)
                 y2 = min(h, y2 + crop_padding)
                 
-                text = rec_texts[i] if i < len(rec_texts) else ""
-                score = rec_scores[i] if i < len(rec_scores) else 0.99
+                detections.append({
+                    "bbox": (x1, y1, x2, y2),
+                    "class_id": class_id,
+                    "class_name": class_name,
+                    "confidence": conf,
+                    "text": "",
+                })
                 
-                detection = {
-                    "bbox": (int(x1), int(y1), int(x2), int(y2)),
-                    "class_id": 4, # Defaults to printed_text
+        elif self.detector_type == "surya":
+            from PIL import Image
+            from surya.detection import batch_detection
+            # Convert BGR to PIL RGB
+            pil_img = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+            predictions = batch_detection([pil_img], self.model, self.processor)
+            det_res = predictions[0]
+            
+            for box in det_res.bboxes:
+                x1, y1, x2, y2 = map(int, box.bbox)
+                
+                x1 = max(0, x1 - crop_padding)
+                y1 = max(0, y1 - crop_padding)
+                x2 = min(w, x2 + crop_padding)
+                y2 = min(h, y2 + crop_padding)
+                
+                detections.append({
+                    "bbox": (x1, y1, x2, y2),
+                    "class_id": 4,
                     "class_name": DETECTION_CLASSES[4],
-                    "confidence": float(score),
-                    "text": text,
-                }
+                    "confidence": 1.0,
+                    "text": "",
+                })
                 
-                if return_crops:
-                    crop = image[y1:y2, x1:x2].copy()
-                    
-                    # Optionally deskew the crop
-                    if apply_deskew and crop.size > 0:
-                        crop = deskew_image(crop)
-                    
-                    detection["crop"] = crop
+        # Populate crops and apply deskew if requested
+        for det in detections:
+            x1, y1, x2, y2 = det["bbox"]
+            if return_crops:
+                crop = image[y1:y2, x1:x2].copy()
+                if apply_deskew and crop.size > 0:
+                    crop = deskew_image(crop)
+                det["crop"] = crop
                 
-                detections.append(detection)
-        
         # Sort by position: top-to-bottom, left-to-right
         detections.sort(key=lambda d: (d["bbox"][1], d["bbox"][0]))
-        
         return detections
 
     def detect_from_pdf(
