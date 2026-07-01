@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from pathlib import Path
 from src.hybrid_ocr.train.config import load_config
-from src.hybrid_ocr.recognition.model import build_model
+from src.hybrid_ocr.recognition.model import build_model_from_config
 from src.hybrid_ocr.dataset.vocabulary import Vocabulary
 
 def export_onnx(
@@ -39,7 +39,7 @@ def export_onnx(
         
     # 4. Build Model
     print("Building model...")
-    model = build_model(config, vocab)
+    model = build_model_from_config(config, vocab)
     
     # 5. Load Checkpoint
     print(f"Loading checkpoint from: {checkpoint_path}")
