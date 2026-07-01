@@ -33,7 +33,12 @@ def main():
     parser.add_argument("--rec-config", default="configs/recognition.yaml", help="Path to recognition config")
     parser.add_argument("--output-dir", default="data/real_fine_tune", help="Output directory for dataset")
     parser.add_argument("--max-pages", type=int, default=5, help="Maximum number of pages to process for fine-tune data")
-    parser.add_argument("--use-paddle", action="store_true", default=True, help="Use PaddleOCR's own recognition results for auto-labeling (highly recommended to avoid model collapse on OOD images)")
+    parser.add_argument(
+        "--labeler",
+        choices=["paddle", "hybrid", "glmocr"],
+        default="paddle",
+        help="Model backend to use for auto-labeling ('paddle', 'hybrid', or 'glmocr')"
+    )
     args = parser.parse_args()
 
     # Create directories
@@ -50,22 +55,29 @@ def main():
         device = "cpu"
     print(f"Using device: {device}")
 
-    # Load vocab
-    vocab_path = Path(args.rec_model).parent / "vocab.json"
-    if not vocab_path.exists():
-        vocab_path = Path(args.rec_config).parent / "vocab.json"
+    labeler_type = args.labeler.lower()
     
-    if vocab_path.exists():
-        vocab = Vocabulary.load(str(vocab_path))
-        print(f"Loaded vocabulary from {vocab_path} (size: {vocab.size})")
-    else:
-        vocab = Vocabulary.build_japanese_auction_vocab()
-        print(f"Built default vocabulary (size: {vocab.size})")
+    # Load vocab if using hybrid
+    vocab = None
+    if labeler_type == "hybrid":
+        vocab_path = Path(args.rec_model).parent / "vocab.json"
+        if not vocab_path.exists():
+            vocab_path = Path(args.rec_config).parent / "vocab.json"
+        
+        if vocab_path.exists():
+            vocab = Vocabulary.load(str(vocab_path))
+            print(f"Loaded vocabulary from {vocab_path} (size: {vocab.size})")
+        else:
+            vocab = Vocabulary.build_japanese_auction_vocab()
+            print(f"Built default vocabulary (size: {vocab.size})")
 
-    # Load Recognition Model (if not using PaddleOCR)
+    # Load Labeler Model
     recognizer = None
-    if not args.use_paddle:
-        print("Loading Custom Recognition Model...")
+    glm_processor = None
+    glm_model = None
+    
+    if labeler_type == "hybrid":
+        print("Loading Custom Recognition Model (Hybrid)...")
         config = load_config(args.rec_config)
         recognizer = HybridOCR.load_checkpoint(
             args.rec_model,
@@ -78,6 +90,27 @@ def main():
         img_w = config.get("input", {}).get("image_width", 256)
         mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
         std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+        
+    elif labeler_type == "glmocr":
+        print("Loading GLM-OCR Model for auto-labeling...")
+        try:
+            from transformers import AutoProcessor, AutoModelForImageTextToText
+        except ImportError:
+            raise ImportError("transformers is required for GLM-OCR. Please install it.")
+            
+        local_dir = "models/glm-ocr"
+        if not os.path.exists(local_dir):
+            print(f"  Local GLM-OCR not found. Downloading to {local_dir}...")
+            from huggingface_hub import snapshot_download
+            snapshot_download(repo_id="zai-org/GLM-OCR", local_dir=local_dir)
+            
+        glm_processor = AutoProcessor.from_pretrained(local_dir, trust_remote_code=True)
+        glm_model = AutoModelForImageTextToText.from_pretrained(
+            local_dir,
+            trust_remote_code=True,
+            torch_dtype=torch.float32 if device == "mps" else torch.bfloat16
+        ).to(device)
+        glm_model.eval()
 
     # Load Detector
     print("Loading Text Detector (PaddleOCR)...")
@@ -109,11 +142,11 @@ def main():
         if img is None:
             continue
         
-        # Detect text boxes (PaddleOCR also performs recognition inside detect())
+        # Detect text boxes
         detections = detector.detect(img, return_crops=True, apply_deskew=True)
         print(f"    Detected {len(detections)} text regions.")
 
-        if args.use_paddle:
+        if labeler_type == "paddle":
             # Use PaddleOCR's own recognized text directly
             for crop_idx, det in enumerate(detections):
                 crop = det["crop"]
@@ -129,8 +162,45 @@ def main():
                     # Save label mapping
                     labels[crop_name] = text
                     crop_counter += 1
-        else:
-            # Use custom recognition model (prone to collapse on pre-trained OOD data)
+                    
+        elif labeler_type == "glmocr":
+            # Use GLM-OCR VLM for high-quality labeling
+            from PIL import Image
+            for crop_idx, det in enumerate(detections):
+                crop = det["crop"]
+                if crop.size > 0:
+                    pil_crop = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
+                    messages = [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "image", "image": pil_crop},
+                                {"type": "text", "text": "Text Recognition:"},
+                            ],
+                        }
+                    ]
+                    inputs = glm_processor.apply_chat_template(
+                        messages,
+                        tokenize=True,
+                        add_generation_prompt=True,
+                        return_dict=True,
+                        return_tensors="pt"
+                    ).to(glm_model.device)
+                    
+                    with torch.no_grad():
+                        output = glm_model.generate(**inputs, max_new_tokens=128)
+                        
+                    prompt_len = inputs["input_ids"].shape[1]
+                    text = glm_processor.decode(output[0][prompt_len:], skip_special_tokens=True).strip()
+                    
+                    crop_name = f"page_{page_idx:04d}_crop_{crop_idx:04d}.png"
+                    crop_path = images_dir / crop_name
+                    cv2.imwrite(str(crop_path), crop)
+                    labels[crop_name] = text
+                    crop_counter += 1
+                    
+        elif labeler_type == "hybrid":
+            # Use custom recognition model
             all_crops = []
             all_tensors = []
             
