@@ -90,10 +90,11 @@ def train_epoch(
     device: torch.device,
     vocab: Vocabulary,
     clip_grad: float = 5.0,
-) -> float:
+) -> Tuple[float, float]:
     """Train for one epoch."""
     model.train()
     loss_meter = AverageMeter()
+    acc_meter = AverageMeter()
     
     pbar = tqdm(dataloader, desc="Training")
     for batch in pbar:
@@ -113,6 +114,15 @@ def train_epoch(
         
         loss = criterion(logits_flat, target_flat)
         
+        # Calculate sequence accuracy (Teacher Forcing)
+        with torch.no_grad():
+            preds = logits.argmax(dim=-1)  # (B, seq_len)
+            mask = target_output != vocab.pad_idx
+            # Sequence is correct if all non-pad tokens match exactly
+            correct_tokens = (preds == target_output) | ~mask
+            seq_correct = correct_tokens.all(dim=-1).sum().item()
+            acc_meter.update(seq_correct / images.size(0), images.size(0))
+        
         # Backward pass and optimize
         loss.backward()
         if clip_grad > 0:
@@ -121,9 +131,9 @@ def train_epoch(
         
         # Update metrics
         loss_meter.update(loss.item(), images.size(0))
-        pbar.set_postfix(loss=f"{loss_meter.avg:.4f}")
+        pbar.set_postfix(loss=f"{loss_meter.avg:.4f}", acc=f"{acc_meter.avg:.4f}")
         
-    return loss_meter.avg
+    return loss_meter.avg, acc_meter.avg
 
 
 @torch.no_grad()
@@ -351,7 +361,7 @@ def train(
     for epoch in range(start_epoch, epochs + 1):
         print(f"\nEpoch {epoch}/{epochs}")
         
-        train_loss = train_epoch(
+        train_loss, train_acc = train_epoch(
             model=model,
             dataloader=train_loader,
             criterion=criterion,
@@ -371,7 +381,7 @@ def train(
         
         scheduler.step()
         
-        print(f"Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
+        print(f"Train Loss: {train_loss:.4f} | Train Acc (TF): {train_acc:.4f} | Val Loss: {val_loss:.4f}")
         print(f"Val Accuracy: {val_acc:.4f} | Val CER: {val_cer:.4f}")
         
         # Save checkpoints
