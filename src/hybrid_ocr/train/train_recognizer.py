@@ -110,7 +110,7 @@ def train_epoch(
         # Forward pass
         optimizer.zero_grad()
         
-        with torch.cuda.amp.autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp):
+        with torch.cuda.amp.autocast(dtype=amp_dtype, enabled=use_amp):
             logits = model(images, target_input)
             
             # Calculate loss
@@ -172,7 +172,7 @@ def evaluate(
         target_input = batch["target_input"].to(device)
         target_output = batch["target_output"].to(device)
         
-        with torch.cuda.amp.autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp):
+        with torch.cuda.amp.autocast(dtype=amp_dtype, enabled=use_amp):
             # Forward pass for loss
             logits = model(images, target_input)
             
@@ -184,7 +184,7 @@ def evaluate(
         
         # Greedy decoding for accuracy/CER
         # We use a subset of validation for actual decoding if it's too slow
-        with torch.cuda.amp.autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp):
+        with torch.cuda.amp.autocast(dtype=amp_dtype, enabled=use_amp):
             generated = model.predict(
                 images, vocab, decoding="greedy", max_len=target_output.size(1)
             )
