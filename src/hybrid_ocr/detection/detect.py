@@ -74,6 +74,7 @@ class TextDetector:
         # Initialize PaddleOCR detector only
         self.model = PaddleOCR(
             lang="japan",
+            use_gpu=use_gpu,
         )
 
     def detect(
@@ -113,7 +114,10 @@ class TextDetector:
         if results and len(results) > 0:
             result = results[0]
             dt_polys = result.get("dt_polys", [])
-            for box in dt_polys:
+            rec_texts = result.get("rec_texts", [])
+            rec_scores = result.get("rec_scores", [])
+            
+            for i, box in enumerate(dt_polys):
                 # box structure is 4 points: [[x1, y1], [x2, y2], [x3, y3], [x4, y4]]
                 pts = np.array(box, dtype=np.int32)
                 x1, y1 = pts.min(axis=0)
@@ -125,11 +129,15 @@ class TextDetector:
                 x2 = min(w, x2 + crop_padding)
                 y2 = min(h, y2 + crop_padding)
                 
+                text = rec_texts[i] if i < len(rec_texts) else ""
+                score = rec_scores[i] if i < len(rec_scores) else 0.99
+                
                 detection = {
                     "bbox": (int(x1), int(y1), int(x2), int(y2)),
                     "class_id": 4, # Defaults to printed_text
                     "class_name": DETECTION_CLASSES[4],
-                    "confidence": 0.99, # Dummy confidence
+                    "confidence": float(score),
+                    "text": text,
                 }
                 
                 if return_crops:

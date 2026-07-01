@@ -1,6 +1,7 @@
 # Datasets
 data/ETL/
 data/curated/
+data/real_fine_tune/
 curated.tar.gz*
 images_debug/
 docs/

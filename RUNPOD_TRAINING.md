@@ -114,3 +114,39 @@ Sau đó chạy:
 ```bash
 python eval_test.py
 ```
+
+---
+
+## 5. Huấn Luyện Fine-tuning trên Dữ Liệu Thực Tế
+
+Sau khi mô hình đã được huấn luyện Pre-train đạt độ chính xác tốt trên dữ liệu tổng hợp (synthetic), bạn tiến hành các bước sau để fine-tune mô hình trên dữ liệu thực tế cắt ra từ các file PDF thật.
+
+### Bước 1: Trích xuất và Tự động Gán Nhãn Dữ Liệu Thật
+Sử dụng script [extract_fine_tune_data.py](file:///Volumes/SpaceX/WorkSpace/python/Simple-OCR/scratch/extract_fine_tune_data.py) để tự động hóa việc đọc PDF, cắt ảnh box (deskewed) và gán nhãn tự động bằng bộ nhận diện PaddleOCR (vô cùng chính xác và nhanh chóng):
+
+```bash
+# Trích xuất dữ liệu từ trang PDF thật (ví dụ: lấy 5 trang đầu)
+python -m scratch.extract_fine_tune_data \
+    --pdf pdfs/2026年6月25日-JU愛知-2163-通常車-151-200.pdf \
+    --output-dir data/real_fine_tune \
+    --max-pages 5
+```
+*Dữ liệu ảnh crop sẽ lưu tại `data/real_fine_tune/images/` và nhãn lưu tại `data/real_fine_tune/labels.json`.*
+
+### Bước 2: Hậu Kiểm / Chỉnh Sửa Nhãn (Tùy chọn)
+Mở tệp `data/real_fine_tune/labels.json` để kiểm tra nhanh. Do được gán nhãn tự động từ mô hình OCR mạnh của Paddle, tỷ lệ chính xác rất cao. Bạn chỉ cần điều chỉnh lại một số ít chữ viết tay quá mờ hoặc bị lỗi nhận diện trước khi bắt đầu huấn luyện.
+
+### Bước 3: Huấn Luyện Fine-tuning
+Chạy lệnh huấn luyện với tham số `--stage finetune` và trỏ `--checkpoint` tới mô hình tốt nhất thu được ở giai đoạn pre-train:
+
+```bash
+python -m src.hybrid_ocr.train.train_recognizer \
+    --config configs/recognition.yaml \
+    --train-data data/real_fine_tune \
+    --val-data data/real_fine_tune \
+    --stage finetune \
+    --checkpoint runs/recognition/model_best.pt \
+    --num-workers 4
+```
+*(Lưu ý: Có thể giảm `learning_rate` xuống nhỏ hơn nữa trong cấu hình `finetune` tại `configs/recognition.yaml` để quá trình học chuyển tiếp diễn ra mượt mà).*
+
