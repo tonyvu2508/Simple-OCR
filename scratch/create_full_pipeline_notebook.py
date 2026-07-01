@@ -1,0 +1,223 @@
+import json
+import os
+
+notebook = {
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Toàn Tập Các Giai Đoạn Dự Án Hybrid OCR\n",
+    "\n",
+    "Notebook này tổng hợp toàn bộ vòng đời (lifecycle) của dự án, từ việc sinh dữ liệu, tiền huấn luyện (Pre-training), trích xuất dữ liệu thực tế, tinh chỉnh (Fine-tuning), cho đến kiểm thử mô hình (Inference) từ đầu đến cuối."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 1. Thiết Lập Môi Trường & Kiểm Tra Phần Cứng\n",
+    "Cài đặt thư viện (nếu cần) và kiểm tra xem hệ thống có nhận diện được GPU (NVIDIA CUDA hoặc Apple MPS) hay không."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "source": [
+    "import sys\n",
+    "import os\n",
+    "import torch\n",
+    "\n",
+    "# Add project root to path\n",
+    "sys.path.append(os.path.abspath('..'))\n",
+    "\n",
+    "if torch.cuda.is_available():\n",
+    "    device = \"cuda\"\n",
+    "    print(f\"NVIDIA GPU: {torch.cuda.get_device_name(0)}\")\n",
+    "elif hasattr(torch.backends, \"mps\") and torch.backends.mps.is_available():\n",
+    "    device = \"mps\"\n",
+    "    print(\"Apple Silicon GPU (MPS) is available.\")\n",
+    "else:\n",
+    "    device = \"cpu\"\n",
+    "    print(\"Using CPU.\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 2. Sinh Dữ Liệu Tổng Hợp (Synthetic Data)\n",
+    "Chạy script sinh dữ liệu ngẫu nhiên (chứa các ký tự từ bộ từ vựng chuyên ngành) cùng với các nhiễu giả lập để huấn luyện mô hình cơ sở (Pre-train)."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "source": [
+    "# Lệnh terminal sinh 50,000 ảnh Train và 5,000 ảnh Val (bỏ qua nếu đã chạy)\n",
+    "!python -m src.hybrid_ocr.dataset.synthetic_data \\\n",
+    "    --train-samples 50000 \\\n",
+    "    --val-samples 5000 \\\n",
+    "    --output-dir ../data \\\n",
+    "    --font-dir ../fonts"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 3. Huấn Luyện Pre-training\n",
+    "Huấn luyện mô hình ConvNeXt + Transformer trên tập dữ liệu tổng hợp vừa tạo. Bước này giúp mô hình học cách nhìn mặt chữ tiếng Nhật cơ bản."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "source": [
+    "!python -m src.hybrid_ocr.train.train_recognizer \\\n",
+    "    --config ../configs/recognition.yaml \\\n",
+    "    --train-data ../data/synth_train \\\n",
+    "    --val-data ../data/synth_val \\\n",
+    "    --stage pretrain \\\n",
+    "    --num-workers 4"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 4. Trích Xuất Dữ Liệu Thực Tế (Real Data Extraction)\n",
+    "Sử dụng mô hình PaddleOCR mạnh mẽ để quét file PDF mẫu, nhận dạng và cắt các box chữ (Crops). Tập dữ liệu thực tế này sẽ dùng để Fine-tune."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "source": [
+    "!python -m scratch.extract_fine_tune_data \\\n",
+    "    --pdf ../pdfs/2026年6月25日-JU愛知-2163-通常車-151-200.pdf \\\n",
+    "    --output-dir ../data/real_fine_tune \\\n",
+    "    --max-pages 5"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 5. Đồng Bộ Từ Vựng (Vocabulary Sync) & Dọn Dẹp Checkpoint\n",
+    "Để tránh lỗi lệch từ vựng (Mismatch), ta cần sao chép tệp `vocab.json` của mô hình pre-train sang thư mục chuẩn bị fine-tune, và đảm bảo thư mục sạch sẽ."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "source": [
+    "!mkdir -p ../runs/finetune\n",
+    "!cp ../runs/recognition/vocab.json ../runs/finetune/vocab.json\n",
+    "!rm -f ../runs/finetune/model_*.pt\n",
+    "print(\"Đã đồng bộ từ vựng và dọn dẹp thư mục finetune thành công!\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 6. Tinh Chỉnh Mô Hình (Fine-Tuning)\n",
+    "Chạy tiếp tục việc học nhưng trên tập dữ liệu cắt từ PDF thật. Khóa bộ xương (freeze encoder) và giảm Learning Rate để tránh mất mát kiến thức cũ (Catastrophic Forgetting)."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "source": [
+    "!python -m src.hybrid_ocr.train.train_recognizer \\\n",
+    "    --config ../configs/recognition.yaml \\\n",
+    "    --train-data ../data/real_fine_tune \\\n",
+    "    --val-data ../data/real_fine_tune \\\n",
+    "    --stage finetune \\\n",
+    "    --checkpoint ../runs/recognition/model_best.pt \\\n",
+    "    --output ../runs/finetune \\\n",
+    "    --num-workers 4"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 7. Đánh Giá Toàn Diện (End-to-End Inference)\n",
+    "Khởi tạo hệ thống đường ống hoàn chỉnh (YOLO / Paddle Detector + Mô hình Nhận dạng vừa Fine-tune) và nhận diện trên toàn bộ một trang PDF."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "source": [
+    "from src.hybrid_ocr.pipeline import AuctionOCRPipeline\n",
+    "import matplotlib.pyplot as plt\n",
+    "import cv2\n",
+    "\n",
+    "# 1. Load pipeline\n",
+    "pipeline = AuctionOCRPipeline(\n",
+    "    yolo_model_path=\"../yolov8s.pt\",\n",
+    "    rec_model_path=\"../runs/finetune/model_best.pt\",\n",
+    "    rec_config_path=\"../configs/recognition.yaml\",\n",
+    "    device=device\n",
+    ")\n",
+    "\n",
+    "# 2. Xử lý 1 trang PDF\n",
+    "OUTPUT_DIR = \"../runs/inference_demo\"\n",
+    "os.makedirs(OUTPUT_DIR, exist_ok=True)\n",
+    "results = pipeline.process_pdf(\n",
+    "    pdf_path=\"../pdfs/2026年6月25日-JU愛知-2163-通常車-151-200.pdf\",\n",
+    "    output_dir=OUTPUT_DIR,\n",
+    "    page_range=(0, 0)\n",
+    ")\n",
+    "\n",
+    "# 3. Hiển thị ảnh đầu ra (có vẽ bounding box)\n",
+    "vis_image_path = os.path.join(OUTPUT_DIR, \"vis_page_0000.png\")\n",
+    "if os.path.exists(vis_image_path):\n",
+    "    img = cv2.imread(vis_image_path)\n",
+    "    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)\n",
+    "    plt.figure(figsize=(15, 20))\n",
+    "    plt.imshow(img)\n",
+    "    plt.axis('off')\n",
+    "    plt.show()"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.10.0"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 4
+}
+
+os.makedirs('notebooks', exist_ok=True)
+output_path = 'notebooks/Full_Training_Pipeline.ipynb'
+with open(output_path, 'w', encoding='utf-8') as f:
+    json.dump(notebook, f, ensure_ascii=False, indent=1)
+
+print(f"Created {output_path}")
