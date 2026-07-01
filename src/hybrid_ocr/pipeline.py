@@ -203,7 +203,12 @@ class AuctionOCRPipeline:
                 raise ImportError(
                     "manga-ocr is required for MangaOCR recognition: pip install manga-ocr"
                 )
-            self.mocr = MangaOcr(pretrained_model_name_or_path=local_dir)
+            
+            # Ép buộc chạy CPU trên Mac (MPS) để tránh lỗi deadlock / treo đồ thị của PyTorch
+            force_cpu = (self.device == "cpu" or self.device == "mps")
+            if force_cpu:
+                print("  Forcing CPU for MangaOCR to avoid MPS deadlock issues on macOS.")
+            self.mocr = MangaOcr(pretrained_model_name_or_path=local_dir, force_cpu=force_cpu)
             self.rec_model_type = "mangaocr"
             # Set dummy defaults for compatibility
             self.img_h = 64
