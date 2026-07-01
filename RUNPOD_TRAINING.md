@@ -54,7 +54,7 @@ python -m src.hybrid_ocr.train.train_recognizer \
     --train-data data/synth_train \
     --val-data data/synth_val \
     --stage pretrain \
-    --num-workers 4
+    --num-workers 8
 ```
 
 ### Lệnh chạy tiếp tục (Resume Training)
@@ -67,7 +67,7 @@ python -m src.hybrid_ocr.train.train_recognizer \
     --val-data data/synth_val \
     --stage pretrain \
     --checkpoint runs/recognition/model_last.pt \
-    --num-workers 4
+    --num-workers 8
 ```
 
 > [!TIP]
@@ -146,7 +146,8 @@ python -m src.hybrid_ocr.train.train_recognizer \
     --val-data data/real_fine_tune \
     --stage finetune \
     --checkpoint runs/recognition/model_best.pt \
-    --num-workers 4
+    --output runs/finetune \
+    --num-workers 8
 ```
-*(Lưu ý: Có thể giảm `learning_rate` xuống nhỏ hơn nữa trong cấu hình `finetune` tại `configs/recognition.yaml` để quá trình học chuyển tiếp diễn ra mượt mà).*
+*(Lưu ý: Bằng việc thêm cờ `--output runs/finetune`, các checkpoint trong quá trình fine-tune sẽ được lưu riêng biệt tại thư mục `runs/finetune/` và không đè lên các checkpoint của giai đoạn pre-train trước đó. Có thể giảm `learning_rate` xuống nhỏ hơn nữa trong cấu hình `finetune` tại `configs/recognition.yaml` để quá trình học chuyển tiếp diễn ra mượt mà).*
 
