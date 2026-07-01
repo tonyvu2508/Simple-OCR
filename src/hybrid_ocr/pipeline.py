@@ -315,16 +315,22 @@ class AuctionOCRPipeline:
         """
         Process a single document page image.
         """
+        import time
+        t_start = time.perf_counter()
+        
         img_name = Path(image_path).name
         img = cv2.imread(image_path)
         if img is None:
             raise ValueError(f"Could not read image: {image_path}")
             
         # 1. Detection
+        t0 = time.perf_counter()
         detections = self.detector.detect(img, return_crops=True, apply_deskew=True)
+        t_det = time.perf_counter() - t0
         
         # 2. Recognition
-        # Process in batches for speed if many detections
+        # Preprocessing crops
+        t0 = time.perf_counter()
         batch_size = 16
         all_tensors = []
         
@@ -336,7 +342,10 @@ class AuctionOCRPipeline:
             else:
                 det["recognized_text"] = ""
                 det["confidence"] = 0.0
+        t_prep = time.perf_counter() - t0
                 
+        # Running model inference
+        t0 = time.perf_counter()
         if all_tensors:
             with torch.no_grad():
                 for i in range(0, len(all_tensors), batch_size):
@@ -355,8 +364,10 @@ class AuctionOCRPipeline:
                         # Remove crop from dict to make it JSON serializable
                         if "crop" in detections[idx]:
                             del detections[idx]["crop"]
+        t_rec = time.perf_counter() - t0
         
         # 3. Visualization
+        t0 = time.perf_counter()
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
             # Ảnh 1: Bounding Box màu xanh (mặc định)
@@ -366,9 +377,15 @@ class AuctionOCRPipeline:
             # Ảnh 2: Bounding Box màu đỏ + Text nhận diện kèm Confidence màu đỏ
             vis_pred = self._visualize_predictions(img, detections)
             cv2.imwrite(str(Path(output_dir) / f"vis_text_{img_name}"), vis_pred)
+        t_vis = time.perf_counter() - t0
             
         # 4. Post-processing (Structure Extraction)
+        t0 = time.perf_counter()
         structured_data = extract_structured_data(detections)
+        t_struct = time.perf_counter() - t0
+        
+        t_total = time.perf_counter() - t_start
+        print(f"    - [Time Summary] Detection: {t_det:.3f}s | Preprocess: {t_prep:.3f}s | Recognition (x{len(all_tensors)}): {t_rec:.3f}s | Visualization: {t_vis:.3f}s | Structure: {t_struct:.3f}s | Total: {t_total:.3f}s")
         
         return {
             "file": img_name,
@@ -385,15 +402,19 @@ class AuctionOCRPipeline:
         """
         Process an entire PDF document.
         """
+        import time
         os.makedirs(output_dir, exist_ok=True)
         
         print(f"\nProcessing PDF: {pdf_path}")
         
         # Render PDF to images
+        t0 = time.perf_counter()
         tmp_dir = Path(output_dir) / "tmp_pages"
         image_paths = render_pdf_pages(
             pdf_path, str(tmp_dir), dpi=200, page_range=page_range
         )
+        t_render = time.perf_counter() - t0
+        print(f"  Rendered PDF to {len(image_paths)} images in {t_render:.3f}s")
         
         results = []
         json_path = Path(output_dir) / f"{Path(pdf_path).stem}_results.json"
