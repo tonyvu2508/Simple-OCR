@@ -23,6 +23,7 @@ __pycache__/
 # Models & Weights
 models/*.h5
 models/*.keras
+models/manga-ocr-base/
 
 # Output & Result Files
 Result.png

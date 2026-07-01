@@ -187,14 +187,23 @@ class AuctionOCRPipeline:
         
         # Load Recognition model
         if rec_model_path.lower() == "mangaocr":
-            print("  Loading Recognition Model (MangaOCR)...")
+            local_dir = "models/manga-ocr-base"
+            if not os.path.exists(local_dir):
+                print(f"  Local model not found. Downloading MangaOCR model from Hugging Face to: {local_dir}...")
+                try:
+                    from huggingface_hub import snapshot_download
+                    snapshot_download(repo_id="kha-white/manga-ocr-base", local_dir=local_dir)
+                except ImportError:
+                    print("  WARNING: huggingface_hub not found. Will let manga-ocr library download it automatically.")
+            
+            print(f"  Loading Recognition Model (MangaOCR from local path: {local_dir})...")
             try:
                 from manga_ocr import MangaOcr
             except ImportError:
                 raise ImportError(
                     "manga-ocr is required for MangaOCR recognition: pip install manga-ocr"
                 )
-            self.mocr = MangaOcr()
+            self.mocr = MangaOcr(pretrained_model_name_or_path=local_dir)
             self.rec_model_type = "mangaocr"
             # Set dummy defaults for compatibility
             self.img_h = 64
