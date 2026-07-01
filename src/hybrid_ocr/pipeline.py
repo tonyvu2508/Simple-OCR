@@ -215,6 +215,46 @@ class AuctionOCRPipeline:
             self.img_w = 256
             self.mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
             self.std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+            
+        elif rec_model_path.lower() == "glmocr":
+            local_dir = "models/glm-ocr"
+            if not os.path.exists(local_dir):
+                print(f"  Local model not found. Downloading GLM-OCR model from Hugging Face to: {local_dir}...")
+                try:
+                    from huggingface_hub import snapshot_download
+                    snapshot_download(repo_id="zai-org/GLM-OCR", local_dir=local_dir)
+                except ImportError:
+                    print("  WARNING: huggingface_hub not found. Will let transformers download it automatically.")
+            
+            print(f"  Loading Recognition Model (GLM-OCR from local path: {local_dir})...")
+            try:
+                from transformers import AutoProcessor, AutoModelForImageTextToText
+            except ImportError:
+                raise ImportError(
+                    "transformers is required for GLM-OCR: pip install transformers"
+                )
+            
+            import torch
+            py_device = "cpu"
+            if self.device == "cuda":
+                py_device = "cuda"
+            elif self.device == "mps":
+                py_device = "mps"
+                
+            print(f"  GLM-OCR loading on device: {py_device}")
+            self.glm_processor = AutoProcessor.from_pretrained(local_dir, trust_remote_code=True)
+            self.glm_model = AutoModelForImageTextToText.from_pretrained(
+                local_dir,
+                trust_remote_code=True,
+                torch_dtype=torch.float32 if py_device == "mps" else torch.bfloat16
+            ).to(py_device)
+            self.glm_model.eval()
+            self.rec_model_type = "glmocr"
+            # Set dummy defaults for compatibility
+            self.img_h = 64
+            self.img_w = 256
+            self.mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+            self.std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
         else:
             print("  Loading Recognition Model (ConvNeXt + Transformer)...")
             self.rec_model_type = "hybrid"
@@ -380,6 +420,55 @@ class AuctionOCRPipeline:
                     text = self.mocr(pil_crop)
                     det["recognized_text"] = text
                     det["rec_confidence"] = 1.0  # MangaOCR does not output confidence scores
+                else:
+                    det["recognized_text"] = ""
+                    det["rec_confidence"] = 0.0
+                    
+                # Clean up crops to make it JSON serializable
+                if "crop" in det:
+                    del det["crop"]
+            t_rec = time.perf_counter() - t0
+            num_crops = len(detections)
+        elif self.rec_model_type == "glmocr":
+            # GLM-OCR handles PIL images
+            t_prep = time.perf_counter() - t0
+            
+            t0 = time.perf_counter()
+            from PIL import Image
+            for det in detections:
+                crop = det["crop"]
+                if crop.size > 0:
+                    pil_crop = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
+                    
+                    # Prepare input using GLM-OCR template
+                    messages = [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "image", "image": pil_crop},
+                                {"type": "text", "text": "Text Recognition:"},
+                            ],
+                        }
+                    ]
+                    
+                    inputs = self.glm_processor.apply_chat_template(
+                        messages, 
+                        tokenize=True, 
+                        add_generation_prompt=True, 
+                        return_dict=True, 
+                        return_tensors="pt"
+                    ).to(self.glm_model.device)
+                    
+                    # Generate output
+                    with torch.no_grad():
+                        output = self.glm_model.generate(**inputs, max_new_tokens=128)
+                        
+                    # Decode only the generated response
+                    prompt_len = inputs["input_ids"].shape[1]
+                    text = self.glm_processor.decode(output[0][prompt_len:], skip_special_tokens=True)
+                    
+                    det["recognized_text"] = text.strip()
+                    det["rec_confidence"] = 1.0
                 else:
                     det["recognized_text"] = ""
                     det["rec_confidence"] = 0.0

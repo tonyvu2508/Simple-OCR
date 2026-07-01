@@ -207,7 +207,7 @@ python -m src.hybrid_ocr.pipeline \
 | Tham số | Giá trị | Mô tả |
 | :--- | :--- | :--- |
 | `--detector` | `paddle` (mặc định) \| `yolo` \| `surya` | Chọn mô hình phát hiện khung chữ. `surya` cho chất lượng tài liệu tốt nhất, `yolo` cho tốc độ nhanh nhất trên Mac Mini (MPS). |
-| `--rec-model` | Đường dẫn `.pt` \| `.onnx` \| `mangaocr` | Mô hình nhận dạng chữ. Bạn có thể truyền checkpoint PyTorch gốc, tệp ONNX hoặc gõ chữ `mangaocr` để dùng mô hình nhận dạng MangaOCR. |
+| `--rec-model` | Đường dẫn `.pt` \| `.onnx` \| `mangaocr` \| `glmocr` | Mô hình nhận dạng chữ. Bạn có thể truyền checkpoint PyTorch gốc, tệp ONNX hoặc gõ chữ `mangaocr`/`glmocr` để dùng mô hình nhận dạng tương ứng. |
 | `--use-clahe` | Không cần giá trị (cờ bật) | Kích hoạt bộ lọc cân bằng ánh sáng cục bộ CLAHE giúp cải thiện độ tương phản cho nét chữ viết tay mờ/nhạt màu. |
 | `--pages` | Ví dụ: `0-4`, `0` hoặc `all` | Chỉ định các trang cần xử lý (bắt đầu từ 0). |
 | `--output` | Đường dẫn thư mục | Thư mục lưu tệp kết quả JSON và ảnh vẽ Bounding Box. |

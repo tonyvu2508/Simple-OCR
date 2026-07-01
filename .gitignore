@@ -24,6 +24,7 @@ __pycache__/
 models/*.h5
 models/*.keras
 models/manga-ocr-base/
+models/glm-ocr/
 
 # Output & Result Files
 Result.png
