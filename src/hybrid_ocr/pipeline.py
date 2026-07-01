@@ -220,8 +220,29 @@ if __name__ == "__main__":
     parser.add_argument("--rec-model", required=True, help="Recognition model .pt path")
     parser.add_argument("--rec-config", default="configs/recognition.yaml")
     parser.add_argument("--output", default="results", help="Output directory")
+    parser.add_argument(
+        "--pages",
+        default="all",
+        help="Pages to process, e.g. '0' (page 1), '0-4' (pages 1 to 5), or 'all' (default)"
+    )
     
     args = parser.parse_args()
+    
+    # Parse page range
+    page_range = None
+    if args.pages and args.pages != "all":
+        if "-" in args.pages:
+            try:
+                start, end = map(int, args.pages.split("-"))
+                page_range = (start, end)
+            except ValueError:
+                raise ValueError("Invalid page range format. Use e.g. '0-4' or '0'")
+        else:
+            try:
+                page_idx = int(args.pages)
+                page_range = (page_idx, page_idx)
+            except ValueError:
+                raise ValueError("Invalid page format. Use e.g. '0-4' or '0'")
     
     pipeline = AuctionOCRPipeline(
         yolo_model_path=args.yolo_model,
@@ -229,4 +250,4 @@ if __name__ == "__main__":
         rec_config_path=args.rec_config,
     )
     
-    pipeline.process_pdf(args.pdf, output_dir=args.output)
+    pipeline.process_pdf(args.pdf, output_dir=args.output, page_range=page_range)
