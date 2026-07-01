@@ -32,6 +32,18 @@ from .train.config import load_config
 from .postprocess import extract_structured_data
 
 
+def apply_clahe(img: np.ndarray, clip_limit: float = 2.0, tile_grid_size: tuple = (8, 8)) -> np.ndarray:
+    """
+    Cân bằng độ tương phản cục bộ CLAHE trên ảnh màu BGR bằng cách chuyển đổi qua hệ LAB.
+    """
+    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tile_grid_size)
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    l_clahe = clahe.apply(l)
+    lab_clahe = cv2.merge((l_clahe, a, b))
+    return cv2.cvtColor(lab_clahe, cv2.COLOR_LAB2BGR)
+
+
 class ONNXHybridOCR:
     """
     ONNX wrapper for HybridOCR model to run inference using onnxruntime.
@@ -145,8 +157,10 @@ class AuctionOCRPipeline:
         rec_model_path: str,
         rec_config_path: str,
         device: str = "auto",
+        use_clahe: bool = False,
     ):
         print("Initializing Hybrid OCR Pipeline...")
+        self.use_clahe = use_clahe
         
         # Determine device
         if device == "auto":
@@ -209,6 +223,10 @@ class AuctionOCRPipeline:
 
     def _preprocess_crop(self, crop: np.ndarray) -> torch.Tensor:
         """Preprocess image crop for recognition model."""
+        # Apply CLAHE if enabled
+        if self.use_clahe:
+            crop = apply_clahe(crop)
+            
         # Convert BGR to RGB
         img = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
         
@@ -407,6 +425,7 @@ if __name__ == "__main__":
         default="all",
         help="Pages to process, e.g. '0' (page 1), '0-4' (pages 1 to 5), or 'all' (default)"
     )
+    parser.add_argument("--use-clahe", action="store_true", help="Use CLAHE local contrast enhancement on crops")
     
     args = parser.parse_args()
     
@@ -430,6 +449,7 @@ if __name__ == "__main__":
         yolo_model_path=args.yolo_model,
         rec_model_path=args.rec_model,
         rec_config_path=args.rec_config,
+        use_clahe=args.use_clahe,
     )
     
     pipeline.process_pdf(args.pdf, output_dir=args.output, page_range=page_range)
