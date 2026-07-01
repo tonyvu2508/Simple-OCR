@@ -112,6 +112,75 @@ class AuctionOCRPipeline:
         tensor = torch.from_numpy(img).permute(2, 0, 1).float()
         return tensor
 
+    def _visualize_predictions(self, image: np.ndarray, detections: List[Dict]) -> np.ndarray:
+        """
+        Vẽ bounding box màu đỏ và văn bản dự đoán tiếng Nhật kèm độ tin cậy màu đỏ lên ảnh sử dụng Pillow.
+        """
+        from PIL import Image, ImageDraw, ImageFont
+        
+        # 1. Vẽ bounding box màu đỏ bằng OpenCV trước
+        vis = image.copy()
+        color_bgr = (0, 0, 255)  # Màu đỏ trong hệ BGR của OpenCV
+        for det in detections:
+            x1, y1, x2, y2 = det["bbox"]
+            cv2.rectangle(vis, (x1, y1), (x2, y2), color_bgr, 2)
+            
+        # 2. Chuyển đổi sang ảnh PIL để vẽ chữ Unicode (tiếng Nhật)
+        img_pil = Image.fromarray(cv2.cvtColor(vis, cv2.COLOR_BGR2RGB))
+        draw = ImageDraw.Draw(img_pil)
+        
+        # Danh sách đường dẫn các font tiếng Nhật phổ biến trên macOS và Linux (RunPod)
+        font_paths = [
+            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+            "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
+            "/System/Library/Fonts/Hiragino Sans GB.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/takao-gothic/TakaoGothic.ttf",
+            "/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf",
+            "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+        ]
+        
+        font = None
+        for fp in font_paths:
+            if os.path.exists(fp):
+                try:
+                    font = ImageFont.truetype(fp, 13)
+                    break
+                except IOError:
+                    continue
+        
+        if font is None:
+            font = ImageFont.load_default()
+            
+        for det in detections:
+            x1, y1, x2, y2 = det["bbox"]
+            text = det.get("recognized_text", "")
+            conf = det.get("rec_confidence", 0.0)
+            
+            label = f"{text} ({conf*100:.0f}%)" if text else ""
+            if label:
+                # Tính toán kích thước chữ để tạo background che khuất nét box bên dưới
+                try:
+                    left, top, right, bottom = draw.textbbox((0, 0), label, font=font)
+                    w = right - left
+                    h = bottom - top
+                except AttributeError:
+                    w, h = draw.textsize(label, font=font)
+                
+                # Vẽ nền trắng che nét box
+                bg_y1 = max(0, y1 - h - 5)
+                bg_y2 = y1
+                draw.rectangle([x1, bg_y1, x1 + w + 4, bg_y2], fill=(255, 255, 255))
+                
+                # Vẽ chữ màu đỏ (hệ PIL RGB là (255, 0, 0))
+                draw.text((x1 + 2, bg_y1 + 1), label, font=font, fill=(255, 0, 0))
+                
+        # 3. Chuyển đổi ngược về OpenCV BGR
+        vis = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+        return vis
+
+
     def process_image(
         self,
         image_path: str,
@@ -164,8 +233,13 @@ class AuctionOCRPipeline:
         # 3. Visualization
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
+            # Ảnh 1: Bounding Box màu xanh (mặc định)
             vis = self.detector.visualize(img, detections)
             cv2.imwrite(str(Path(output_dir) / f"vis_{img_name}"), vis)
+            
+            # Ảnh 2: Bounding Box màu đỏ + Text nhận diện kèm Confidence màu đỏ
+            vis_pred = self._visualize_predictions(img, detections)
+            cv2.imwrite(str(Path(output_dir) / f"vis_text_{img_name}"), vis_pred)
             
         # 4. Post-processing (Structure Extraction)
         structured_data = extract_structured_data(detections)
