@@ -1,5 +1,7 @@
 # Các Hướng Cải Tiến Mô Hình Hybrid OCR (Tốc Độ & Kiến Trúc)
 
+*Ngày lập tài liệu: 2026-07-01 17:00 (Local Time)*
+
 Tài liệu này đề xuất các giải pháp nâng cấp kiến trúc và tối ưu hiệu năng (tốc độ, tài nguyên) cho mô hình Hybrid OCR (ConvNeXt + Transformer Decoder) dựa trên các nguyên lý tối ưu hóa tiên tiến của báo cáo kỹ thuật GLM-OCR.
 
 ---

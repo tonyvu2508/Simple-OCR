@@ -1,5 +1,7 @@
 # Các Hướng Cải Thiện Độ Chính Xác Cho Hybrid OCR (Accuracy Optimization)
 
+*Ngày lập tài liệu: 2026-07-01 17:00 (Local Time)*
+
 Tài liệu này tổng hợp các giải pháp khoa học dữ liệu và kỹ thuật mô hình nhằm tối ưu hóa độ chính xác nhận diện ký tự (giảm thiểu CER/WER), đặc biệt đối với chữ viết tay tiếng Nhật (Handwritten Japanese) trên các phiếu đấu giá xe.
 
 ---
