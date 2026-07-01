@@ -89,12 +89,16 @@ def train_epoch(
     optimizer: optim.Optimizer,
     device: torch.device,
     vocab: Vocabulary,
+    scaler: torch.cuda.amp.GradScaler,
     clip_grad: float = 5.0,
 ) -> Tuple[float, float]:
     """Train for one epoch."""
     model.train()
     loss_meter = AverageMeter()
     acc_meter = AverageMeter()
+    
+    use_amp = (device.type == "cuda")
+    amp_dtype = torch.bfloat16 if use_amp and torch.cuda.is_bf16_supported() else torch.float16
     
     pbar = tqdm(dataloader, desc="Training")
     for batch in pbar:
@@ -105,14 +109,15 @@ def train_epoch(
         
         # Forward pass
         optimizer.zero_grad()
-        logits = model(images, target_input)
         
-        # Calculate loss
-        # Flatten logits and targets: (B, seq_len, vocab_size) -> (B*seq_len, vocab_size)
-        logits_flat = logits.view(-1, logits.size(-1))
-        target_flat = target_output.view(-1)
-        
-        loss = criterion(logits_flat, target_flat)
+        with torch.cuda.amp.autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp):
+            logits = model(images, target_input)
+            
+            # Calculate loss
+            # Flatten logits and targets: (B, seq_len, vocab_size) -> (B*seq_len, vocab_size)
+            logits_flat = logits.view(-1, logits.size(-1))
+            target_flat = target_output.view(-1)
+            loss = criterion(logits_flat, target_flat)
         
         # Calculate sequence accuracy (Teacher Forcing)
         with torch.no_grad():
@@ -123,11 +128,13 @@ def train_epoch(
             seq_correct = correct_tokens.all(dim=-1).sum().item()
             acc_meter.update(seq_correct / images.size(0), images.size(0))
         
-        # Backward pass and optimize
-        loss.backward()
+        # Backward pass and optimize with AMP scaler
+        scaler.scale(loss).backward()
         if clip_grad > 0:
+            scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad)
-        optimizer.step()
+        scaler.step(optimizer)
+        scaler.update()
         
         # Update metrics
         loss_meter.update(loss.item(), images.size(0))
@@ -153,6 +160,9 @@ def evaluate(
     model.eval()
     loss_meter = AverageMeter()
     
+    use_amp = (device.type == "cuda")
+    amp_dtype = torch.bfloat16 if use_amp and torch.cuda.is_bf16_supported() else torch.float16
+    
     all_preds = []
     all_targets = []
     
@@ -162,19 +172,22 @@ def evaluate(
         target_input = batch["target_input"].to(device)
         target_output = batch["target_output"].to(device)
         
-        # Forward pass for loss
-        logits = model(images, target_input)
-        
-        logits_flat = logits.view(-1, logits.size(-1))
-        target_flat = target_output.view(-1)
-        loss = criterion(logits_flat, target_flat)
+        with torch.cuda.amp.autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp):
+            # Forward pass for loss
+            logits = model(images, target_input)
+            
+            logits_flat = logits.view(-1, logits.size(-1))
+            target_flat = target_output.view(-1)
+            loss = criterion(logits_flat, target_flat)
+            
         loss_meter.update(loss.item(), images.size(0))
         
         # Greedy decoding for accuracy/CER
         # We use a subset of validation for actual decoding if it's too slow
-        generated = model.predict(
-            images, vocab, decoding="greedy", max_len=target_output.size(1)
-        )
+        with torch.cuda.amp.autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp):
+            generated = model.predict(
+                images, vocab, decoding="greedy", max_len=target_output.size(1)
+            )
         
         # Convert targets to strings
         for i in range(images.size(0)):
@@ -359,6 +372,12 @@ def train(
             
     clip_grad = config.get("training", {}).get("gradient_clip", 5.0)
     
+    # Initialize AMP GradScaler
+    # Enable scaler only when running on CUDA and using float16 (bfloat16 does not need scaling)
+    use_amp = (device.type == "cuda")
+    is_bf16 = use_amp and torch.cuda.is_bf16_supported()
+    scaler = torch.cuda.amp.GradScaler(enabled=(use_amp and not is_bf16))
+    
     # Training Loop
     print(f"\nStarting {stage} from epoch {start_epoch} to {epochs}...")
     best_cer = float("inf")
@@ -373,6 +392,7 @@ def train(
             optimizer=optimizer,
             device=device,
             vocab=vocab,
+            scaler=scaler,
             clip_grad=clip_grad,
         )
         
