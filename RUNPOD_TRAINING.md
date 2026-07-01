@@ -122,16 +122,25 @@ python eval_test.py
 Sau khi mô hình đã được huấn luyện Pre-train đạt độ chính xác tốt trên dữ liệu tổng hợp (synthetic), bạn tiến hành các bước sau để fine-tune mô hình trên dữ liệu thực tế cắt ra từ các file PDF thật.
 
 ### Bước 1: Trích xuất và Tự động Gán Nhãn Dữ Liệu Thật
-Sử dụng script [extract_fine_tune_data.py](file:///Volumes/SpaceX/WorkSpace/python/Simple-OCR/scratch/extract_fine_tune_data.py) để tự động hóa việc đọc PDF, cắt ảnh box (deskewed) và gán nhãn tự động bằng bộ nhận diện PaddleOCR (vô cùng chính xác và nhanh chóng):
+Sử dụng script [extract_fine_tune_data.py](file:///Volumes/SpaceX/WorkSpace/python/Simple-OCR/scratch/extract_fine_tune_data.py) để tự động hóa việc đọc PDF, cắt ảnh box (deskewed) và tự động gán nhãn bằng các mô hình OCR mạnh mẽ:
 
 ```bash
-# Trích xuất dữ liệu từ trang PDF thật (ví dụ: lấy 5 trang đầu)
+# Trích xuất dữ liệu sử dụng gán nhãn tự động bằng GLM-OCR (Độ chính xác cao, khuyên dùng)
 python -m scratch.extract_fine_tune_data \
     --pdf pdfs/2026年6月25日-JU愛知-2163-通常車-151-200.pdf \
     --output-dir data/real_fine_tune \
-    --max-pages 5
+    --max-pages 5 \
+    --labeler glmocr
+
+# Hoặc trích xuất sử dụng PaddleOCR làm mô hình gán nhãn
+python -m scratch.extract_fine_tune_data \
+    --pdf pdfs/2026年6月25日-JU愛知-2163-通常車-151-200.pdf \
+    --output-dir data/real_fine_tune \
+    --max-pages 5 \
+    --labeler paddle
 ```
-*Dữ liệu ảnh crop sẽ lưu tại `data/real_fine_tune/images/` và nhãn lưu tại `data/real_fine_tune/labels.json`.*
+*   Tham số `--labeler` hỗ trợ 3 tùy chọn: `paddle` (mô hình của PaddleOCR), `hybrid` (sử dụng chính checkpoint Hybrid OCR hiện tại của bạn thông qua cờ `--rec-model`), và `glmocr` (sử dụng mô hình GLM-OCR 0.9B đa phương thức có độ chính xác cao).
+*   Dữ liệu ảnh crop sẽ lưu tại `data/real_fine_tune/images/` và nhãn tự động lưu tại `data/real_fine_tune/labels.json`.
 
 ### Bước 2: Hậu Kiểm / Chỉnh Sửa Nhãn (Tùy chọn)
 Mở tệp `data/real_fine_tune/labels.json` để kiểm tra nhanh. Do được gán nhãn tự động từ mô hình OCR mạnh của Paddle, tỷ lệ chính xác rất cao. Bạn chỉ cần điều chỉnh lại một số ít chữ viết tay quá mờ hoặc bị lỗi nhận diện trước khi bắt đầu huấn luyện.
