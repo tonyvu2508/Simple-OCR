@@ -388,9 +388,6 @@ def train(
         weight_decay=weight_decay,
     )
     
-    epochs = stage_cfg.get("epochs", 100)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
-    
     label_smoothing = stage_cfg.get("label_smoothing", 0.1)
     criterion = LabelSmoothingLoss(
         classes=vocab.size,
@@ -398,17 +395,31 @@ def train(
         ignore_index=vocab.pad_idx,
     ).to(device)
     
-    # Restore optimizer/scheduler states if resuming
+    # Restore optimizer state if resuming
     if checkpoint_data:
         if "optimizer_state_dict" in checkpoint_data:
             optimizer.load_state_dict(checkpoint_data["optimizer_state_dict"])
             print("  Restored optimizer state")
-        if "scheduler_state_dict" in checkpoint_data:
-            scheduler.load_state_dict(checkpoint_data["scheduler_state_dict"])
-            print("  Restored scheduler state")
         if "epoch" in checkpoint_data:
             start_epoch = checkpoint_data["epoch"] + 1
             print(f"  Resuming from epoch {start_epoch}")
+            
+    # Determine training epochs
+    epochs_val = stage_cfg.get("epochs", 100)
+    is_custom_stage = (epochs is not None) or (lr is not None)
+    
+    if epochs is not None:
+        epochs_val = start_epoch + epochs - 1
+        print(f"  Command-line epochs override detected. Adjusted target end epoch to {epochs_val} ({epochs} additional epochs)")
+        
+    # Initialize Scheduler
+    t_max = epochs if epochs is not None else epochs_val
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=t_max)
+    
+    if checkpoint_data and not is_custom_stage:
+        if "scheduler_state_dict" in checkpoint_data:
+            scheduler.load_state_dict(checkpoint_data["scheduler_state_dict"])
+            print("  Restored scheduler state")
             
     clip_grad = config.get("training", {}).get("gradient_clip", 5.0)
     
@@ -419,11 +430,11 @@ def train(
     scaler = torch.cuda.amp.GradScaler(enabled=(use_amp and not is_bf16))
     
     # Training Loop
-    print(f"\nStarting {stage} from epoch {start_epoch} to {epochs}...")
+    print(f"\nStarting {stage} from epoch {start_epoch} to {epochs_val}...")
     best_cer = float("inf")
     
-    for epoch in range(start_epoch, epochs + 1):
-        print(f"\nEpoch {epoch}/{epochs}")
+    for epoch in range(start_epoch, epochs_val + 1):
+        print(f"\nEpoch {epoch}/{epochs_val}")
         
         train_loss, train_acc = train_epoch(
             model=model,
