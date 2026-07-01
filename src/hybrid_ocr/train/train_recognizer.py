@@ -95,13 +95,16 @@ def train_epoch(
     """Train for one epoch."""
     model.train()
     loss_meter = AverageMeter()
-    acc_meter = AverageMeter()
     
     use_amp = (device.type == "cuda")
     amp_dtype = torch.bfloat16 if use_amp and torch.cuda.is_bf16_supported() else torch.float16
     
+    # Accumulate accuracy stats on GPU to prevent CPU-GPU synchronization bottleneck (.item() call)
+    correct_t = torch.zeros(1, device=device)
+    total_t = torch.zeros(1, device=device)
+    
     pbar = tqdm(dataloader, desc="Training")
-    for batch in pbar:
+    for step, batch in enumerate(pbar):
         # Move batch to device
         images = batch["image"].to(device)
         target_input = batch["target_input"].to(device)
@@ -119,14 +122,15 @@ def train_epoch(
             target_flat = target_output.view(-1)
             loss = criterion(logits_flat, target_flat)
         
-        # Calculate sequence accuracy (Teacher Forcing)
+        # Calculate sequence accuracy (Teacher Forcing) on GPU
         with torch.no_grad():
             preds = logits.argmax(dim=-1)  # (B, seq_len)
             mask = target_output != vocab.pad_idx
             # Sequence is correct if all non-pad tokens match exactly
             correct_tokens = (preds == target_output) | ~mask
-            seq_correct = correct_tokens.all(dim=-1).sum().item()
-            acc_meter.update(seq_correct / images.size(0), images.size(0))
+            seq_correct = correct_tokens.all(dim=-1).sum()
+            correct_t += seq_correct
+            total_t += images.size(0)
         
         # Backward pass and optimize with AMP scaler
         scaler.scale(loss).backward()
@@ -136,11 +140,17 @@ def train_epoch(
         scaler.step(optimizer)
         scaler.update()
         
-        # Update metrics
+        # Update loss (scalar copy is cheap)
         loss_meter.update(loss.item(), images.size(0))
-        pbar.set_postfix(loss=f"{loss_meter.avg:.4f}", acc=f"{acc_meter.avg:.4f}")
         
-    return loss_meter.avg, acc_meter.avg
+        # Only pull accuracy from GPU to CPU every 50 steps for progress display
+        if (step + 1) % 50 == 0 or (step + 1) == len(dataloader):
+            acc_val = (correct_t / total_t).item()
+            pbar.set_postfix(loss=f"{loss_meter.avg:.4f}", acc=f"{acc_val:.4f}")
+            
+    # Final epoch accuracy sync
+    final_acc = (correct_t / total_t).item()
+    return loss_meter.avg, final_acc
 
 
 @torch.no_grad()
@@ -276,6 +286,14 @@ def train(
         model.load_state_dict(checkpoint_data["model_state_dict"])
         
     model = model.to(device)
+    
+    # Compile model for optimized performance on PyTorch 2.0+ (especially modern GPUs like L40)
+    if device.type == "cuda" and hasattr(torch, "compile"):
+        print("Compiling model (this may take a few minutes before the first epoch)...")
+        try:
+            model = torch.compile(model)
+        except Exception as e:
+            print(f"Warning: Model compilation failed, falling back to standard execution. Error: {e}")
     
     # Setup Data
     img_h = config.get("input", {}).get("image_height", 64)
